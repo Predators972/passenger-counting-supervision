@@ -1,0 +1,16 @@
+# Environment variables - contains real BDD3 credentials, must NEVER be committed
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp

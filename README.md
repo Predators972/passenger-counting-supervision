@@ -1,0 +1,145 @@
+# Outil de supervision du comptage voyageurs
+
+## Présentation du projet
+
+Ce dépôt contient le développement d'un **outil interne de supervision** du système de comptage voyageurs déployé sur le parc bus et tramways de la **TaM**.
+
+L'outil permet aux équipes de maintenance de repérer rapidement les véhicules ou capteurs en anomalie, sans avoir besoin d'un accès direct à la base de données technique, et de retrouver immédiatement la procédure de maintenance associée à l'anomalie détectée.
+
+### Contexte
+
+Depuis la mise en place de la gratuité des transports sur le réseau TaM fin 2023, la billettique ne permet plus d'estimer la fréquentation réelle du réseau. TaM a donc engagé un projet structurant avec le groupement **Webreathe**, qui a équipé l'ensemble du parc d'un système embarqué de comptage automatique des voyageurs, composé de :
+
+- capteurs **EYES** positionnés au-dessus des portes,
+- un calculateur central **WEBOX** par véhicule, assurant le traitement local et la remontée des données via 4G vers le serveur Webreathe,
+- une interface avec le SAE pour contextualiser chaque événement de comptage (ligne, arrêt, sens, course).
+
+Cette architecture, aussi fiable soit-elle, nécessite un suivi technique régulier : antennes, cartes SIM, câblages, calibrage des capteurs... C'est pour faciliter ce suivi que cet outil de supervision est développé, en complément de l'outil CARE3 fourni par Webreathe.
+
+### Objectifs de l'outil
+
+1. **Vue d'ensemble du parc**
+   - Visualiser en un coup d'œil l'état de chaque véhicule (fonctionnel / anomalie)
+   - Filtrer et trier par véhicule, par état, par date de dernière remontée
+
+2. **Détection automatique des anomalies**
+   - Anomalie véhicule : aucune remontée WEBOX depuis plus de 2 jours
+   - Anomalie porte : un capteur EYES silencieux alors que les autres portes du même véhicule remontent des données
+   - (à venir) Incohérence de remontée et anomalie de position GPS
+
+3. **Aide à l'intervention terrain**
+   - Rappel automatique du cas correspondant dans la procédure de maintenance Webreathe (WEBOX / EYES)
+   - Mode de vérification post-intervention : confirmation rapide qu'une porte ou un véhicule remonte de nouveau des données après une réparation
+
+4. **Historique et traçabilité**
+   - Consultation de l'historique des remontées sur une période donnée (jusqu'à 2 mois), pour vérifier la continuité des transmissions
+
+### Avancement actuel
+
+- ✅ **Vue d'ensemble du parc**
+- ⏳ **Détection automatique des anomalies**
+- ⏳ **Aide à l'intervention terrain**
+- ⏳ **Historique et traçabilité**
+
+### Auteur
+
+- **[Johan](https://github.com/Predators972)** — Encadrant Technique - Service Installations Fixes, TaM
+
+### Supervisors/
+
+- Emmanuel AHIVI - Responsable Unité Système - Service Installations Fixes, TaM
+
+---
+
+## Structure du projet
+
+```
+passenger-counting-supervision/
+│
+├── backend/                     # API FastAPI (Python)
+│   ├── app/
+│   │   ├── main.py              # Point d'entrée, sert aussi le frontend
+│   │   ├── config.py            # Chargement des identifiants + seuils d'anomalie
+│   │   ├── database.py          # Connexion BDD3 + repli sur données d'exemple
+│   │   ├── anomaly.py           # Logique de détection d'anomalie
+│   │   └── routes/
+│   │       └── vehicles.py      # Endpoints API (/api/vehicles, /api/history, ...)
+│   ├── requirements.txt
+│   └── .env.example             # Modèle pour les identifiants (à copier en .env)
+│
+├── frontend/                    # Interface web (HTML / CSS / JS, sans framework)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+│
+├── data/                        # Données d'exemple pour développer sans accès BDD3
+│   ├── sample_metrics.csv
+│   └── sample_door_counts.csv
+│
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Démarrage rapide
+
+### Prérequis
+
+- Python 3.14 (ou version ultérieure)
+- Accès à la base de données **BDD3**
+
+### Installation
+
+Depuis le dossier `backend/` :
+
+```bash
+py -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+Éditer ensuite le fichier `.env` :
+- pour développer sans BDD3 (données d'exemple) : laisser `USE_SAMPLE_DATA=true`
+- pour se connecter à la vraie base : renseigner `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, puis passer `USE_SAMPLE_DATA=false`
+
+### Lancer l'outil
+
+Depuis le dossier `backend/` (environnement virtuel activé) :
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Puis ouvrir : **http://127.0.0.1:8000**
+
+La documentation interactive de l'API est disponible sur **http://127.0.0.1:8000/docs**.
+
+---
+
+## Pile technique
+
+### Backend
+- **Python 3.14** + **FastAPI** — API REST
+- **psycopg2** — connexion PostgreSQL à BDD3
+- **pandas** — calcul des indicateurs et détection d'anomalie
+
+### Frontend
+- **HTML / CSS / JavaScript** natifs, sans framework ni étape de build
+
+### Base de données
+- **PostgreSQL** — base **BDD3**, tables `metrics` (remontées Webreathe/SAE) et `door_counts` (comptages bruts par porte)
+
+---
+
+## Documents de référence
+
+Ce projet s'appuie sur les documents internes suivants :
+
+- **Cahier des charges de l'outil de supervision** — exigences fonctionnelles, structure des données, règles d'anomalie
+- **Procédure de maintenance Webreathe (WEBOX / EYES)** — diagnostic et actions correctives sur le terrain
+
+## Sécurité
+
+Le fichier `.env` contient des identifiants de connexion réels à BDD3. Il est exclu du suivi Git via `.gitignore` et ne doit **jamais** être partagé, ni ajouté manuellement à un commit.

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Supervision - Système de comptage voyageurs</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Supervision du système de comptage voyageurs</h1>
+  </header>
+
+  <main>
+    <!-- Vue globale du parc (CDC 3.1) -->
+    <section id="global-view">
+      <div class="toolbar">
+        <label>
+          Filtrer par état :
+          <select id="status-filter">
+            <option value="">Tous</option>
+            <option value="fonctionnel">Fonctionnel</option>
+            <option value="anomalie">Anomalie</option>
+          </select>
+        </label>
+        <label>
+          Numéro de véhicule :
+          <input type="text" id="vehicle-search" placeholder="Ex: 1002">
+        </label>
+        <button id="refresh-btn">Rafraîchir</button>
+        <span id="last-refresh"></span>
+      </div>
+
+      <table id="vehicle-table">
+        <thead>
+          <tr>
+            <th id="col-vehicle" class="sortable">Véhicule <span class="sort-arrow"></span></th>
+            <th id="col-last-seen" class="sortable">Dernière remontée <span class="sort-arrow"></span></th>
+            <th>État</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Vue détail véhicule (CDC 3.2) -->
+    <section id="detail-view" class="hidden">
+      <button id="back-btn">&larr; Retour à la vue globale</button>
+      <h2 id="detail-title"></h2>
+      <p id="detail-status"></p>
+
+      <h3>Portes</h3>
+      <table id="door-table">
+        <thead>
+          <tr>
+            <th>Porte</th>
+            <th>Dernière remontée</th>
+            <th>État</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div id="procedure-hint" class="hidden"></div>
+
+      <div class="live-check">
+        <button id="live-check-btn">Vérifier après intervention</button>
+        <span id="live-check-status"></span>
+      </div>
+
+      <h3>Historique des remontées</h3>
+      <div class="toolbar">
+        <label>Du <input type="date" id="history-start"></label>
+        <label>Au <input type="date" id="history-end"></label>
+        <button id="history-btn">Afficher l'historique</button>
+      </div>
+      <ul id="history-list"></ul>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
