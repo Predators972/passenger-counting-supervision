@@ -101,7 +101,7 @@ def fetch_metrics(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
 
 def fetch_door_counts(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
     """
-    Fetch recent rows from the "door_counts" table.
+    Fetch recent rows from the "door_counts" table, for the whole fleet.
     Passenger volumes (PX_IN / PX_OUT) are only used internally to determine
     the last-seen timestamp per door - they are dropped before being returned
     by the API (see anomaly.get_door_status_for_vehicle).
@@ -116,6 +116,40 @@ def fetch_door_counts(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
         """
         with get_connection() as conn:
             df = pd.read_sql(query % days_back, conn)
+        df = df.rename(columns={"num_parc_wb": "num_parc"})
+
+    df["timestamp"] = pd.to_datetime(
+        df["date_wb"].astype(str) + " " + df["heure_wb"].astype(str),
+        errors="coerce",
+    )
+    return df
+
+
+def fetch_door_counts_for_vehicle(num_parc, days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+    """
+    Fetch door_counts rows for a single vehicle only.
+
+    Used by the vehicle detail, live-check and history endpoints. Filtering
+    directly in SQL (instead of fetching the whole fleet and filtering with
+    pandas) keeps these fast, since door_counts holds every vehicle's data
+    with up to 16 doors x 2 columns each.
+    """
+    if USE_SAMPLE_DATA:
+        df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")
+        df = df[df["num_parc"] == int(num_parc)]
+    else:
+        # days_back is an internal constant (not user input) so it's safe to
+        # inline in the query string. num_parc comes from the URL, so it is
+        # passed as a bound parameter to avoid SQL injection.
+        query = f"""
+            SELECT *
+            FROM door_counts
+            WHERE date_wb >= CURRENT_DATE - INTERVAL '{days_back} days'
+              AND num_parc_wb = %s
+        """
+        with get_connection() as conn:
+            df = pd.read_sql(query, conn, params=(num_parc,))
+        df = df.rename(columns={"num_parc_wb": "num_parc"})
 
     df["timestamp"] = pd.to_datetime(
         df["date_wb"].astype(str) + " " + df["heure_wb"].astype(str),

@@ -77,7 +77,11 @@ function renderVehicleTable() {
           ${v.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
         </td>
       `;
-      tr.addEventListener("click", () => showVehicleDetail(v.num_parc));
+      tr.addEventListener("click", () => {
+        document.getElementById("detail-vehicle-input").value = v.num_parc;
+        switchTab("detail-view");
+        showVehicleDetail(v.num_parc);
+      });
       tbody.appendChild(tr);
     });
 }
@@ -126,8 +130,8 @@ async function showVehicleDetail(numParc) {
   }
   const data = await res.json();
 
-  document.getElementById("global-view").classList.add("hidden");
-  document.getElementById("detail-view").classList.remove("hidden");
+  document.getElementById("detail-placeholder").classList.add("hidden");
+  document.getElementById("detail-content").classList.remove("hidden");
 
   renderVehicleDetail(data);
 
@@ -240,6 +244,31 @@ async function loadHistory() {
   });
 }
 
+function searchVehicleFromInput() {
+  const value = document.getElementById("detail-vehicle-input").value.trim();
+  if (!value) {
+    alert("Veuillez saisir un numéro de véhicule.");
+    return;
+  }
+  showVehicleDetail(value);
+}
+
+// ---------- Navigation par onglets ----------
+
+function switchTab(tabId) {
+  document.querySelectorAll(".tab-panel").forEach(panel => {
+    panel.classList.toggle("active", panel.id === tabId);
+  });
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tabId);
+  });
+
+  // Stop the post-intervention polling if we navigate away from the detail tab
+  if (tabId !== "detail-view") {
+    stopLiveCheck();
+  }
+}
+
 // ---------- Navigation & événements ----------
 
 // Only the refresh button hits the backend/BDD3. Filters just re-render
@@ -252,11 +281,12 @@ document.getElementById("col-last-seen").addEventListener("click", () => toggleS
 document.getElementById("live-check-btn").addEventListener("click", startLiveCheck);
 document.getElementById("history-btn").addEventListener("click", loadHistory);
 
-document.getElementById("back-btn").addEventListener("click", () => {
-  stopLiveCheck();
-  document.getElementById("detail-view").classList.add("hidden");
-  document.getElementById("global-view").classList.remove("hidden");
-  loadVehicles();
+document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
+document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));
+
+document.getElementById("detail-search-btn").addEventListener("click", searchVehicleFromInput);
+document.getElementById("detail-vehicle-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") searchVehicleFromInput();
 });
 
 // Initial load

@@ -11,7 +11,7 @@ CDC mapping:
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime, date
 
-from app.database import fetch_metrics, fetch_door_counts
+from app.database import fetch_metrics, fetch_door_counts_for_vehicle
 from app.anomaly import get_vehicle_overview, get_door_status_for_vehicle
 
 router = APIRouter(prefix="/api", tags=["vehicles"])
@@ -33,7 +33,7 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
 def get_vehicle_detail(num_parc: int):
     """CDC 3.2: detailed view for one vehicle, including per-door status."""
     metrics_df = fetch_metrics()
-    door_df = fetch_door_counts()
+    door_df = fetch_door_counts_for_vehicle(num_parc)
 
     overview = get_vehicle_overview(metrics_df)
     vehicle = next((v for v in overview if v["num_parc"] == num_parc), None)
@@ -67,7 +67,7 @@ def get_vehicle_history(
     end_date: date | None = Query(default=None),
 ):
     """CDC 3.3: reporting history over a given period (max 2 months of raw data available)."""
-    door_df = fetch_door_counts()
+    door_df = fetch_door_counts_for_vehicle(num_parc)
     vehicle_df = door_df[door_df["num_parc"] == num_parc].copy()
 
     if start_date:
