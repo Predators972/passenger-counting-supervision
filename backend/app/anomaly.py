@@ -9,8 +9,44 @@ implemented - thresholds/rules still need to be defined with the business.
 from datetime import datetime, timedelta
 import pandas as pd
 
-from app.config import VEHICLE_ANOMALY_THRESHOLD_HOURS, DOOR_ANOMALY_THRESHOLD_HOURS
+from app.config import (
+    VEHICLE_ANOMALY_THRESHOLD_HOURS, DOOR_ANOMALY_THRESHOLD_HOURS,
+    EXPLOITATION_STATES,
+)
 from app.database import get_door_columns
+
+
+def get_last_exploitation_time(metrics_df: pd.DataFrame):
+    """
+    Return the most recent timestamp at which this vehicle had
+    operation_state 1 (service commercial) or 2 (HLP) - i.e. genuinely in
+    service, as opposed to idle at the depot. Returns None if no such row
+    is found in the fetched window (in that case callers should fall back
+    to "now" as the reference point).
+    """
+    if "operation_state" not in metrics_df.columns:
+        return None
+    in_service = metrics_df[
+        metrics_df["operation_state"].isin(EXPLOITATION_STATES) & metrics_df["timestamp"].notna()
+    ]
+    if in_service.empty:
+        return None
+    return in_service["timestamp"].max()
+
+
+def get_last_exploitation_per_vehicle(metrics_df: pd.DataFrame) -> dict:
+    """
+    Same as get_last_exploitation_time, but for every vehicle in metrics_df
+    at once (used by the global fleet view). Returns {num_parc: timestamp}.
+    """
+    if "operation_state" not in metrics_df.columns:
+        return {}
+    in_service = metrics_df[
+        metrics_df["operation_state"].isin(EXPLOITATION_STATES) & metrics_df["timestamp"].notna()
+    ]
+    if in_service.empty:
+        return {}
+    return in_service.groupby("num_parc")["timestamp"].max().to_dict()
 
 
 def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list[dict]:
@@ -20,15 +56,15 @@ def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list
     """
     now = now or datetime.now()
 
-    last_seen = (
-        metrics_df.dropna(subset=["timestamp"])
-        .groupby("num_parc")["timestamp"]
-        .max()
-        .reset_index()
-    )
+    valid = metrics_df.dropna(subset=["timestamp"])
+    if valid.empty:
+        return []
+
+    idx = valid.groupby("num_parc")["timestamp"].idxmax()
+    last_rows = valid.loc[idx]
 
     results = []
-    for _, row in last_seen.iterrows():
+    for _, row in last_rows.iterrows():
         hours_since = (now - row["timestamp"]).total_seconds() / 3600
         status = "anomalie" if hours_since > VEHICLE_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
         results.append({
@@ -41,61 +77,69 @@ def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list
     return sorted(results, key=lambda v: v["num_parc"])
 
 
-def get_door_status_for_vehicle(door_counts_df: pd.DataFrame, num_parc, now: datetime = None) -> list[dict]:
+def get_door_status_for_vehicle(
+    door_counts_df: pd.DataFrame,
+    num_parc,
+    reference_time: datetime,
+    expected_doors: list[int] | None = None,
+) -> list[dict]:
     """
     Build the door-level detail for one vehicle (CDC 3.2 / 4.2).
-    A door is flagged as anomaly if it hasn't reported within the threshold
-    while at least one other door on the same vehicle has more recent data.
+
+    A door is flagged as anomaly if its last report is more than
+    DOOR_ANOMALY_THRESHOLD_HOURS away from `reference_time`.
+
+    reference_time should normally be the vehicle's last known genuine
+    exploitation time (operation_state 1 or 2 - see routes/vehicles.py),
+    NOT simply "now". Comparing doors to each other or to "now" is
+    unreliable: a vehicle idle at the depot for repairs can still get a
+    stray reading on just one door (e.g. a maintainer walking past a
+    sensor), which would make that one door look "recent" while the
+    others look wrongly anomalous by comparison. Anchoring on the last
+    real exploitation avoids this false signal.
+
     Passenger volume values (PX_IN / PX_OUT) are used only to detect the
     last non-null timestamp per door - they are never included in the output.
     """
-    now = now or datetime.now()
-
     vehicle_df = door_counts_df[door_counts_df["num_parc"] == num_parc]
-    if vehicle_df.empty:
-        return []
 
-    door_numbers = get_door_columns(vehicle_df)
+    candidate_doors = expected_doors if expected_doors is not None else get_door_columns(vehicle_df)
     door_last_seen = {}
 
-    for door_num in door_numbers:
+    for door_num in candidate_doors:
         in_col = f"P{door_num}_IN"
         out_col = f"P{door_num}_OUT"
         cols_present = [c for c in (in_col, out_col) if c in vehicle_df.columns]
-        if not cols_present:
+        if not cols_present or vehicle_df.empty:
+            door_last_seen[door_num] = None
             continue
 
         has_value = vehicle_df[cols_present].notna().any(axis=1)
         reported_rows = vehicle_df[has_value]
-        if reported_rows.empty:
-            door_last_seen[door_num] = None
-        else:
-            door_last_seen[door_num] = reported_rows["timestamp"].max()
+        door_last_seen[door_num] = reported_rows["timestamp"].max() if not reported_rows.empty else None
 
-    known_timestamps = [ts for ts in door_last_seen.values() if ts is not None]
-    if not known_timestamps:
-        return []
-
-    most_recent_on_vehicle = max(known_timestamps)
+    if expected_doors is None:
+        # Fallback mode: drop doors that never reported in the fetched window
+        # (see docstring - we can't yet tell "silent" from "doesn't exist").
+        door_last_seen = {d: ts for d, ts in door_last_seen.items() if ts is not None}
 
     results = []
     for door_num, last_ts in sorted(door_last_seen.items()):
         if last_ts is None:
             status = "anomalie"
-            hours_since = None
+            hours_since_now = None
         else:
-            hours_since = (now - last_ts).total_seconds() / 3600
-            other_doors_more_recent = last_ts < most_recent_on_vehicle
-            status = (
-                "anomalie"
-                if hours_since > DOOR_ANOMALY_THRESHOLD_HOURS and other_doors_more_recent
-                else "fonctionnel"
-            )
+            hours_gap_to_reference = abs((reference_time - last_ts).total_seconds()) / 3600
+            status = "anomalie" if hours_gap_to_reference > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
+            # Displayed duration is always relative to "now", for consistency
+            # with the rest of the UI - the status decision above is the only
+            # place that uses reference_time (last exploitation).
+            hours_since_now = (datetime.now() - last_ts).total_seconds() / 3600
 
         results.append({
             "porte": door_num,
             "last_seen": last_ts.isoformat() if last_ts is not None else None,
-            "hours_since_last_seen": round(hours_since, 1) if hours_since is not None else None,
+            "hours_since_last_seen": round(hours_since_now, 2) if hours_since_now is not None else None,
             "status": status,
         })
 

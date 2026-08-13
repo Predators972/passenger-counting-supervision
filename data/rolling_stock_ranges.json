@@ -1,0 +1,51 @@
+[
+  {
+    "range_start": 2001,
+    "range_end": 2030,
+    "type": "Tramway CITADIS 401",
+    "door_scheme": "tram_401_402_urbos",
+    "door_count": 16
+  },
+  {
+    "range_start": 2031,
+    "range_end": 2069,
+    "type": "Tramway CITADIS 302",
+    "door_scheme": "tram_302",
+    "door_count": 12
+  },
+  {
+    "range_start": 2070,
+    "range_end": 2099,
+    "type": "Tramway CITADIS 402",
+    "door_scheme": "tram_401_402_urbos",
+    "door_count": 16
+  },
+  {
+    "range_start": 2100,
+    "range_end": 2199,
+    "type": "Tramway CAF URBOS",
+    "door_scheme": "tram_401_402_urbos",
+    "door_count": 16
+  },
+  {
+    "range_start": 100,
+    "range_end": 699,
+    "type": "Bus gaz",
+    "door_scheme": "bus",
+    "door_count": null
+  },
+  {
+    "range_start": 700,
+    "range_end": 799,
+    "type": "Bus électrique",
+    "door_scheme": "bus",
+    "door_count": null
+  },
+  {
+    "range_start": 800,
+    "range_end": 1000,
+    "type": "Bus gaz",
+    "door_scheme": "bus",
+    "door_count": null
+  }
+]

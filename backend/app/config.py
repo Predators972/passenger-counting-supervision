@@ -24,6 +24,12 @@ USE_SAMPLE_DATA = os.getenv("USE_SAMPLE_DATA", "true").lower() == "true"
 # state and how long a vehicle/door has been in it, not deep history).
 HISTORY_LOOKBACK_DAYS = 60
 
+# operation_state values (per BDD3 doc) that count as the vehicle genuinely
+# being in active service. Used to find the last time a vehicle was truly
+# in exploitation, as opposed to noise picked up while idle at the depot
+# (e.g. a maintainer walking past a door sensor triggers just that one door).
+EXPLOITATION_STATES = {1, 2}  # 1 = En service commercial, 2 = En HLP
+
 # --- Anomaly detection thresholds ---
 # Section 4.1 of the CDC: a vehicle is flagged when it hasn't reported any data
 # for more than this many hours. Fixed at 2 days for now (per business decision).

@@ -64,6 +64,41 @@ main {
   font-style: italic;
 }
 
+#door-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.door-cell {
+  min-width: 110px;
+  padding: 10px;
+  border-radius: 4px;
+  text-align: center;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.door-cell.door-ok {
+  background: #d4edda;
+  color: #1a7a33;
+}
+
+.door-cell.door-anomaly {
+  background: #f8d7da;
+  color: #c0392b;
+}
+
+.door-cell .door-label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.door-cell .door-timestamp {
+  font-size: 0.8em;
+}
+
 .toolbar {
   display: flex;
   gap: 16px;

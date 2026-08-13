@@ -39,19 +39,39 @@ async function loadVehicles() {
   const data = await res.json();
   allVehicles = data.vehicles;
 
+  populateTypeFilter();
   renderVehicleTable();
   document.getElementById("last-refresh").textContent =
     "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
 }
 
+function populateTypeFilter() {
+  const select = document.getElementById("type-filter");
+  const previousValue = select.value;
+  const types = [...new Set(allVehicles.map(v => v.rolling_stock_type))].sort();
+
+  select.innerHTML = '<option value="">Tous</option>';
+  types.forEach(type => {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = type;
+    select.appendChild(option);
+  });
+
+  // Keep the previous selection if it's still a valid option after refresh
+  if (types.includes(previousValue)) select.value = previousValue;
+}
+
 function renderVehicleTable() {
   const statusFilter = document.getElementById("status-filter").value;
+  const typeFilter = document.getElementById("type-filter").value;
   const search = document.getElementById("vehicle-search").value.trim();
   const tbody = document.querySelector("#vehicle-table tbody");
   tbody.innerHTML = "";
 
   let rows = allVehicles
     .filter(v => !statusFilter || v.status === statusFilter)
+    .filter(v => !typeFilter || v.rolling_stock_type === typeFilter)
     .filter(v => !search || String(v.num_parc).includes(search));
 
   if (sortState.column) {
@@ -73,6 +93,7 @@ function renderVehicleTable() {
       tr.innerHTML = `
         <td>${v.num_parc}</td>
         <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
+        <td>${v.last_exploitation ? formatDate(v.last_exploitation) + '<br><small>' + formatDuration(v.hours_since_last_exploitation) + '</small>' : 'Aucune donnée'}</td>
         <td class="${v.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
           ${v.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
         </td>
@@ -80,7 +101,9 @@ function renderVehicleTable() {
       tr.addEventListener("click", () => {
         document.getElementById("detail-vehicle-input").value = v.num_parc;
         switchTab("detail-view");
-        showVehicleDetail(v.num_parc);
+        // Pass the last known report time from the global view as a hint,
+        // so the detail query doesn't have to scan the full lookback window.
+        showVehicleDetail(v.num_parc, v.last_seen);
       });
       tbody.appendChild(tr);
     });
@@ -109,8 +132,13 @@ function formatDate(isoString) {
   return new Date(isoString).toLocaleString("fr-FR");
 }
 
-function formatDuration(hours) {
+function formatDuration(hours, precise) {
   if (hours === null || hours === undefined) return "";
+  if (precise && hours < 1) {
+    const minutes = Math.round(hours * 60);
+    if (minutes < 1) return "il y a moins d'1 minute";
+    return `il y a ${minutes} min`;
+  }
   if (hours < 1) return "il y a moins d'1 heure";
   if (hours < 48) return `depuis ${Math.floor(hours)} h`;
   const days = Math.floor(hours / 24);
@@ -119,11 +147,14 @@ function formatDuration(hours) {
 
 // ---------- Vue détail véhicule ----------
 
-async function showVehicleDetail(numParc) {
+async function showVehicleDetail(numParc, since) {
   currentVehicle = numParc;
   stopLiveCheck();
 
-  const res = await fetch(`${API_BASE}/vehicles/${numParc}`);
+  const url = new URL(`${API_BASE}/vehicles/${numParc}`, window.location.origin);
+  if (since) url.searchParams.set("since", since);
+
+  const res = await fetch(url);
   if (!res.ok) {
     alert("Véhicule introuvable.");
     return;
@@ -145,30 +176,34 @@ async function showVehicleDetail(numParc) {
 }
 
 function renderVehicleDetail(data) {
-  document.getElementById("detail-title").textContent = `Véhicule ${data.num_parc}`;
+  document.getElementById("summary-num-parc").textContent = data.num_parc;
+  document.getElementById("summary-door-ratio").textContent =
+    `${data.door_count_functional} / ${data.door_count_total}`;
+  document.getElementById("summary-rolling-stock").textContent = data.rolling_stock_type;
 
-  const statusEl = document.getElementById("detail-status");
-  const duration = formatDuration(data.hours_since_last_seen);
-  statusEl.textContent = data.status === "anomalie"
-    ? `Anomalie - dernière remontée : ${formatDate(data.last_seen)} (${duration})`
-    : `Fonctionnel - dernière remontée : ${formatDate(data.last_seen)}`;
-  statusEl.className = data.status === "anomalie" ? "status-anomaly" : "status-ok";
+  populateHistoryDoorFilter(data.doors);
 
-  const tbody = document.querySelector("#door-table tbody");
-  tbody.innerHTML = "";
+  const expText = document.getElementById("last-exploitation-text");
+  if (data.last_exploitation) {
+    expText.textContent =
+      `Dernière exploitation : ${formatDate(data.last_exploitation)} (${formatDuration(data.hours_since_last_exploitation)})`;
+  } else {
+    expText.textContent = "Dernière exploitation : aucune donnée d'exploitation trouvée sur la période chargée.";
+  }
+
+  const grid = document.getElementById("door-grid");
+  grid.innerHTML = "";
   let hasDoorAnomaly = false;
 
   data.doors.forEach(d => {
     if (d.status === "anomalie") hasDoorAnomaly = true;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>Porte ${d.porte}</td>
-      <td>${formatDate(d.last_seen)}<br><small>${formatDuration(d.hours_since_last_seen)}</small></td>
-      <td class="${d.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
-        ${d.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
-      </td>
+    const cell = document.createElement("div");
+    cell.className = `door-cell ${d.status === 'anomalie' ? 'door-anomaly' : 'door-ok'}`;
+    cell.innerHTML = `
+      <span class="door-label">Porte ${d.porte_physique}</span>
+      <span class="door-timestamp">${formatDate(d.last_seen)}<br>${formatDuration(d.hours_since_last_seen, true)}</span>
     `;
-    tbody.appendChild(tr);
+    grid.appendChild(cell);
   });
 
   const hintEl = document.getElementById("procedure-hint");
@@ -218,13 +253,35 @@ function stopLiveCheck() {
 
 // ---------- Historique ----------
 
+function populateHistoryDoorFilter(doors) {
+  const select = document.getElementById("history-door-filter");
+  const previousValue = select.value;
+
+  select.innerHTML = '<option value="">Toutes</option>';
+  doors
+    .map(d => d.porte_physique)
+    .sort((a, b) => a - b)
+    .forEach(porte => {
+      const option = document.createElement("option");
+      option.value = porte;
+      option.textContent = `Porte ${porte}`;
+      select.appendChild(option);
+    });
+
+  if ([...select.options].some(o => o.value === previousValue)) {
+    select.value = previousValue;
+  }
+}
+
 async function loadHistory() {
   const start = document.getElementById("history-start").value;
   const end = document.getElementById("history-end").value;
+  const door = document.getElementById("history-door-filter").value;
 
   const url = new URL(`${API_BASE}/history/${currentVehicle}`, window.location.origin);
   if (start) url.searchParams.set("start_date", start);
   if (end) url.searchParams.set("end_date", end);
+  if (door) url.searchParams.set("door", door);
 
   const res = await fetch(url);
   const data = await res.json();
@@ -237,9 +294,9 @@ async function loadHistory() {
     return;
   }
 
-  data.reports.forEach(ts => {
+  data.reports.forEach(r => {
     const li = document.createElement("li");
-    li.textContent = formatDate(ts);
+    li.textContent = `${formatDate(r.timestamp)} — Porte ${r.porte}`;
     list.appendChild(li);
   });
 }
@@ -275,11 +332,13 @@ function switchTab(tabId) {
 // the data already in memory (allVehicles) - instant, no network call.
 document.getElementById("refresh-btn").addEventListener("click", loadVehicles);
 document.getElementById("status-filter").addEventListener("change", renderVehicleTable);
+document.getElementById("type-filter").addEventListener("change", renderVehicleTable);
 document.getElementById("vehicle-search").addEventListener("input", renderVehicleTable);
 document.getElementById("col-vehicle").addEventListener("click", () => toggleSort("num_parc"));
 document.getElementById("col-last-seen").addEventListener("click", () => toggleSort("last_seen"));
 document.getElementById("live-check-btn").addEventListener("click", startLiveCheck);
 document.getElementById("history-btn").addEventListener("click", loadHistory);
+document.getElementById("history-door-filter").addEventListener("change", loadHistory);
 
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
 document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));

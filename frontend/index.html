@@ -28,6 +28,12 @@
           </select>
         </label>
         <label>
+          Type de véhicule :
+          <select id="type-filter">
+            <option value="">Tous</option>
+          </select>
+        </label>
+        <label>
           Numéro de véhicule :
           <input type="text" id="vehicle-search" placeholder="Ex: 1002">
         </label>
@@ -40,6 +46,7 @@
           <tr>
             <th id="col-vehicle" class="sortable">Véhicule <span class="sort-arrow"></span></th>
             <th id="col-last-seen" class="sortable">Dernière remontée <span class="sort-arrow"></span></th>
+            <th>Dernière exploitation</th>
             <th>État</th>
           </tr>
         </thead>
@@ -60,20 +67,26 @@
       <p id="detail-placeholder">Saisissez un numéro de véhicule puis cliquez sur "Rechercher".</p>
 
       <div id="detail-content" class="hidden">
-        <h2 id="detail-title"></h2>
-        <p id="detail-status"></p>
-
-        <h3>Portes</h3>
-        <table id="door-table">
+        <table id="vehicle-summary-table">
           <thead>
             <tr>
-              <th>Porte</th>
-              <th>Dernière remontée</th>
-              <th>État</th>
+              <th>Véhicule</th>
+              <th>Portes fonctionnelles</th>
+              <th>Type de matériel roulant</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody>
+            <tr>
+              <td id="summary-num-parc"></td>
+              <td id="summary-door-ratio"></td>
+              <td id="summary-rolling-stock"></td>
+            </tr>
+          </tbody>
         </table>
+
+        <p id="last-exploitation-text"></p>
+
+        <div id="door-grid"></div>
 
         <div id="procedure-hint" class="hidden"></div>
 
@@ -86,6 +99,12 @@
         <div class="toolbar">
           <label>Du <input type="date" id="history-start"></label>
           <label>Au <input type="date" id="history-end"></label>
+          <label>
+            Porte :
+            <select id="history-door-filter">
+              <option value="">Toutes</option>
+            </select>
+          </label>
           <button id="history-btn">Afficher l'historique</button>
         </div>
         <ul id="history-list"></ul>
