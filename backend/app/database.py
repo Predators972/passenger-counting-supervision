@@ -14,7 +14,7 @@ import re
 import psycopg2
 import psycopg2.extras
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -28,6 +28,38 @@ SAMPLE_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DOOR_COLUMN_PATTERN = re.compile(r"^P(\d+)_(IN|OUT)$", re.IGNORECASE)
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
+
+
+def utc_now() -> datetime:
+    """
+    Current time in UTC, naive (no tzinfo attached) - matches the convention
+    used for every "timestamp" column derived from date_wb/heure_wb, which
+    are UTC per the BDD3 doc.
+
+    Never use datetime.now() directly for anomaly/duration math: it returns
+    the *local* system clock, which would silently bias every duration
+    calculation by the UTC offset (1-2h depending on daylight saving) when
+    compared against our UTC-based timestamps.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def to_local_iso(ts):
+    """
+    Convert a naive UTC timestamp (as stored in our "timestamp" columns) to
+    Europe/Paris local time and format as an ISO 8601 string (no UTC offset)
+    - for DISPLAY only, in API responses consumed by the front-end.
+    Returns None for missing values.
+    """
+    if ts is None:
+        return None
+    try:
+        if pd.isna(ts):
+            return None
+    except (TypeError, ValueError):
+        pass
+    ts = pd.Timestamp(ts)
+    return ts.tz_localize("UTC").tz_convert(PARIS_TZ).tz_localize(None).isoformat()
 
 
 def _combine_date_time(df: pd.DataFrame, date_col: str, time_col: str) -> pd.Series:
@@ -67,7 +99,7 @@ def _lookback_start(since=None) -> datetime:
     view) - but we never look back further than HISTORY_LOOKBACK_DAYS,
     which is the hard floor.
     """
-    floor = datetime.now() - timedelta(days=HISTORY_LOOKBACK_DAYS)
+    floor = utc_now() - timedelta(days=HISTORY_LOOKBACK_DAYS)
     if since is not None and since > floor:
         return since
     return floor
@@ -237,7 +269,7 @@ def get_door_columns(door_counts_df: pd.DataFrame):
     return _detect_door_columns(door_counts_df.columns)
 
 
-def fetch_door_last_seen_aggregate(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+def fetch_door_last_seen_aggregate(days_back: int = 30) -> pd.DataFrame:
     """
     For the whole fleet, compute the last-seen timestamp of EACH door
     directly in SQL (one aggregate query, GROUP BY vehicle) instead of
@@ -247,7 +279,13 @@ def fetch_door_last_seen_aggregate(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd
     (CDC 4.2) - e.g. one dead door out of sixteen - without paying the cost
     of a full door_counts fetch for the entire fleet.
 
+    days_back defaults to 30 (business decision - a compromise between the
+    full 60-day floor used elsewhere and query cost on the real database).
+
     Returns one row per vehicle with columns num_parc, p1_last .. p16_last.
+    A NULL column for a given door either means it hasn't reported within
+    `days_back`, OR that the door doesn't exist on that vehicle - callers
+    with known expected door counts (fleet_reference.py) can disambiguate.
     """
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")

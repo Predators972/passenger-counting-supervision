@@ -13,7 +13,7 @@ from app.config import (
     VEHICLE_ANOMALY_THRESHOLD_HOURS, DOOR_ANOMALY_THRESHOLD_HOURS,
     EXPLOITATION_STATES,
 )
-from app.database import get_door_columns
+from app.database import get_door_columns, utc_now, to_local_iso
 
 
 def get_last_exploitation_time(metrics_df: pd.DataFrame):
@@ -54,7 +54,7 @@ def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list
     Build the "vue globale du parc" (CDC 3.1): one row per vehicle with its
     last report time and status (fonctionnel / anomalie).
     """
-    now = now or datetime.now()
+    now = now or utc_now()
 
     valid = metrics_df.dropna(subset=["timestamp"])
     if valid.empty:
@@ -69,7 +69,7 @@ def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list
         status = "anomalie" if hours_since > VEHICLE_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
         results.append({
             "num_parc": row["num_parc"],
-            "last_seen": row["timestamp"].isoformat(),
+            "last_seen": row["timestamp"],
             "hours_since_last_seen": round(hours_since, 1),
             "status": status,
         })
@@ -86,17 +86,19 @@ def get_door_status_for_vehicle(
     """
     Build the door-level detail for one vehicle (CDC 3.2 / 4.2).
 
-    A door is flagged as anomaly if its last report is more than
-    DOOR_ANOMALY_THRESHOLD_HOURS away from `reference_time`.
+    A door is flagged as anomaly only if its last report is MORE THAN
+    DOOR_ANOMALY_THRESHOLD_HOURS *before* `reference_time` - i.e. it went
+    silent before (or during) the vehicle's last known exploitation and
+    never reported again since. A door that reported AFTER reference_time
+    is never an anomaly, even if that's a while ago: it proves the door
+    still works (e.g. a maintainer walking past a sensor while the vehicle
+    was idle at the depot is completely normal and not a fault).
 
     reference_time should normally be the vehicle's last known genuine
     exploitation time (operation_state 1 or 2 - see routes/vehicles.py),
-    NOT simply "now". Comparing doors to each other or to "now" is
-    unreliable: a vehicle idle at the depot for repairs can still get a
-    stray reading on just one door (e.g. a maintainer walking past a
-    sensor), which would make that one door look "recent" while the
-    others look wrongly anomalous by comparison. Anchoring on the last
-    real exploitation avoids this false signal.
+    NOT simply "now". Comparing doors only to "now" is unreliable: a
+    vehicle idle at the depot for repairs can go quiet for days without
+    that being a real problem.
 
     Passenger volume values (PX_IN / PX_OUT) are used only to detect the
     last non-null timestamp per door - they are never included in the output.
@@ -123,22 +125,26 @@ def get_door_status_for_vehicle(
         # (see docstring - we can't yet tell "silent" from "doesn't exist").
         door_last_seen = {d: ts for d, ts in door_last_seen.items() if ts is not None}
 
+    now = utc_now()
     results = []
     for door_num, last_ts in sorted(door_last_seen.items()):
         if last_ts is None:
             status = "anomalie"
             hours_since_now = None
         else:
-            hours_gap_to_reference = abs((reference_time - last_ts).total_seconds()) / 3600
-            status = "anomalie" if hours_gap_to_reference > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
+            # Positive = door's last report is BEFORE reference_time (stale).
+            # Negative or zero = door reported at/after reference_time, i.e.
+            # it's definitely not silent - always "fonctionnel" in that case.
+            hours_behind_reference = (reference_time - last_ts).total_seconds() / 3600
+            status = "anomalie" if hours_behind_reference > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
             # Displayed duration is always relative to "now", for consistency
             # with the rest of the UI - the status decision above is the only
             # place that uses reference_time (last exploitation).
-            hours_since_now = (datetime.now() - last_ts).total_seconds() / 3600
+            hours_since_now = (now - last_ts).total_seconds() / 3600
 
         results.append({
             "porte": door_num,
-            "last_seen": last_ts.isoformat() if last_ts is not None else None,
+            "last_seen": to_local_iso(last_ts),
             "hours_since_last_seen": round(hours_since_now, 2) if hours_since_now is not None else None,
             "status": status,
         })

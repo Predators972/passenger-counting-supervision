@@ -101,9 +101,7 @@ function renderVehicleTable() {
       tr.addEventListener("click", () => {
         document.getElementById("detail-vehicle-input").value = v.num_parc;
         switchTab("detail-view");
-        // Pass the last known report time from the global view as a hint,
-        // so the detail query doesn't have to scan the full lookback window.
-        showVehicleDetail(v.num_parc, v.last_seen);
+        showVehicleDetail(v.num_parc);
       });
       tbody.appendChild(tr);
     });
@@ -147,12 +145,11 @@ function formatDuration(hours, precise) {
 
 // ---------- Vue détail véhicule ----------
 
-async function showVehicleDetail(numParc, since) {
+async function showVehicleDetail(numParc) {
   currentVehicle = numParc;
   stopLiveCheck();
 
   const url = new URL(`${API_BASE}/vehicles/${numParc}`, window.location.origin);
-  if (since) url.searchParams.set("since", since);
 
   const res = await fetch(url);
   if (!res.ok) {

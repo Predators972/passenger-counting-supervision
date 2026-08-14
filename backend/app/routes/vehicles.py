@@ -12,8 +12,11 @@ from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime, date, timedelta
 import pandas as pd
 
-from app.config import VEHICLE_ANOMALY_THRESHOLD_HOURS
-from app.database import fetch_metrics, fetch_metrics_for_vehicle, fetch_door_counts_for_vehicle, fetch_door_last_seen_aggregate, get_door_columns
+from app.database import (
+    fetch_metrics, fetch_metrics_for_vehicle, fetch_door_counts_for_vehicle,
+    fetch_door_last_seen_aggregate, get_door_columns, utc_now, to_local_iso,
+)
+from app.config import DOOR_ANOMALY_THRESHOLD_HOURS
 from app.anomaly import get_vehicle_overview, get_door_status_for_vehicle, get_last_exploitation_time, get_last_exploitation_per_vehicle
 from app.fleet_reference import get_rolling_stock, get_physical_door_number, is_known_vehicle
 
@@ -25,10 +28,21 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
     """
     CDC 3.1 + 5: global fleet view, optionally filtered by status.
 
-    "Dernière remontée" reflects whichever is OLDER between the vehicle's
-    own last report (metrics) and the oldest last-seen among its doors
-    (door_counts) - so a single dead door among many working ones still
-    surfaces here as an anomaly, not just a fully silent WEBOX.
+    Per vehicle, this exposes exactly three pieces of information:
+    1. "last_seen" = the OLDEST last-seen timestamp among all its doors
+       (the "weakest link" - if any door is stale, this reflects it).
+    2. "last_exploitation" = the last time operation_state was 1 or 2
+       (genuinely in service).
+    3. "status": anomalie if (last_exploitation - last_seen) > 48h, i.e.
+       the door(s) went silent more than 2 days before the vehicle's last
+       real exploitation and never reported again since. If last_seen is
+       AFTER last_exploitation (e.g. a maintainer walking past a sensor
+       while the vehicle was idle at the depot), that's never an anomaly,
+       no matter how long ago that report was - it proves the door works.
+
+    The door lookup only scans a 30-day window (not the full 60-day floor
+    used elsewhere) as a cost/thoroughness compromise for a fleet-wide
+    query - see fetch_door_last_seen_aggregate.
     """
     metrics_df = fetch_metrics()
     vehicles = get_vehicle_overview(metrics_df)
@@ -40,41 +54,66 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
     for v in vehicles:
         v["rolling_stock_type"] = get_rolling_stock(v["num_parc"])["type"]
 
-    now = datetime.now()
+    now = utc_now()
 
     last_exploitation_map = get_last_exploitation_per_vehicle(metrics_df)
-    for v in vehicles:
-        last_exp = last_exploitation_map.get(v["num_parc"])
-        if last_exp is not None:
-            v["last_exploitation"] = last_exp.isoformat()
-            v["hours_since_last_exploitation"] = round((now - last_exp).total_seconds() / 3600, 1)
-        else:
-            v["last_exploitation"] = None
-            v["hours_since_last_exploitation"] = None
-
     door_agg_df = fetch_door_last_seen_aggregate()
     door_agg_by_vehicle = {row["num_parc"]: row for _, row in door_agg_df.iterrows()}
-    door_cols = [f"p{n}_last" for n in range(1, 17)]
 
     for v in vehicles:
+        last_exp = last_exploitation_map.get(v["num_parc"])
+        v["hours_since_last_exploitation"] = (
+            round((now - last_exp).total_seconds() / 3600, 1) if last_exp is not None else None
+        )
+        v["last_exploitation"] = to_local_iso(last_exp)
+
+        rolling_stock = get_rolling_stock(v["num_parc"])
         agg_row = door_agg_by_vehicle.get(v["num_parc"])
-        if agg_row is None:
-            continue
 
-        door_timestamps = [pd.Timestamp(agg_row[c]) for c in door_cols if pd.notna(agg_row.get(c))]
-        if not door_timestamps:
-            continue
+        # Known door count -> we can tell "missing" from "doesn't exist".
+        # Unknown (e.g. buses) -> only consider doors that have reported
+        # something within the 30-day window (same fallback limitation as
+        # the detail view when the rolling stock type isn't configured).
+        if rolling_stock and rolling_stock["door_count"] is not None:
+            candidate_doors = range(1, rolling_stock["door_count"] + 1)
+        elif agg_row is not None:
+            candidate_doors = [n for n in range(1, 17) if pd.notna(agg_row.get(f"p{n}_last"))]
+        else:
+            candidate_doors = []
 
-        oldest_door_ts = min(door_timestamps).to_pydatetime()
-        vehicle_ts = datetime.fromisoformat(v["last_seen"])
-        worst_ts = min(vehicle_ts, oldest_door_ts)
+        door_timestamps = []
+        has_missing_door = False
+        for n in candidate_doors:
+            ts = agg_row.get(f"p{n}_last") if agg_row is not None else None
+            if pd.isna(ts):
+                has_missing_door = True
+            else:
+                door_timestamps.append(pd.Timestamp(ts))
 
-        if worst_ts < vehicle_ts:
-            hours_since = (now - worst_ts).total_seconds() / 3600
-            v["last_seen"] = worst_ts.isoformat()
-            v["hours_since_last_seen"] = round(hours_since, 1)
-            if hours_since > VEHICLE_ANOMALY_THRESHOLD_HOURS:
-                v["status"] = "anomalie"
+        oldest_door_ts = min(door_timestamps) if door_timestamps else None
+
+        v["last_seen"] = to_local_iso(oldest_door_ts)
+        v["hours_since_last_seen"] = (
+            round((now - oldest_door_ts).total_seconds() / 3600, 1) if oldest_door_ts is not None else None
+        )
+
+        if oldest_door_ts is None:
+            # No door data at all within the 30-day window: can't have been
+            # in genuine service recently either way - anomalie.
+            v["status"] = "anomalie"
+        elif has_missing_door:
+            # At least one expected door has zero data in the window - a
+            # door that's been silent for over 30 days is certainly stale
+            # relative to any exploitation within that window.
+            v["status"] = "anomalie"
+        elif last_exp is None:
+            # No exploitation reference available in the fetched window -
+            # fall back to comparing the oldest door report to now.
+            hours_since_now = (now - oldest_door_ts).total_seconds() / 3600
+            v["status"] = "anomalie" if hours_since_now > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
+        else:
+            hours_behind_exploitation = (last_exp - oldest_door_ts).total_seconds() / 3600
+            v["status"] = "anomalie" if hours_behind_exploitation > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
 
     if status:
         vehicles = [v for v in vehicles if v["status"] == status]
@@ -83,21 +122,27 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
 
 
 @router.get("/vehicles/{num_parc}")
-def get_vehicle_detail(num_parc: int, since: datetime | None = Query(default=None)):
+def get_vehicle_detail(num_parc: int):
     """
     CDC 3.2: detailed view for one vehicle, including per-door status,
     rolling stock type and functional/total door count.
 
-    "since" is an optional optimization: if the caller already knows this
-    vehicle's last known report time (e.g. from the global view, already
-    loaded in the front-end), passing it here narrows the query instead of
-    always scanning the full lookback window - see database.py.
+    The overall "status" is "anomalie" if either the vehicle itself (WEBOX)
+    hasn't reported recently, OR at least one door is in anomaly - a door
+    with zero data at all must never be silently counted as "fonctionnel".
+
+    Always fetches the full lookback window (metrics AND door_counts) for
+    this one vehicle - already fast since both queries are filtered to a
+    single num_parc in SQL. An earlier "since" narrowing optimization was
+    removed: it caused doors with real, older-than-"since" data to
+    incorrectly show "Aucune donnée" when navigating from the global view,
+    since the hint value wasn't always old enough to cover them.
     """
     if not is_known_vehicle(num_parc):
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
 
-    metrics_df = fetch_metrics_for_vehicle(num_parc, since=since)
-    door_df = fetch_door_counts_for_vehicle(num_parc, since=since)
+    metrics_df = fetch_metrics_for_vehicle(num_parc)
+    door_df = fetch_door_counts_for_vehicle(num_parc)
 
     overview = get_vehicle_overview(metrics_df)
     vehicle = overview[0] if overview else None
@@ -115,24 +160,32 @@ def get_vehicle_detail(num_parc: int, since: datetime | None = Query(default=Non
     # Compare each door's last report to the vehicle's last genuine
     # exploitation, not to "now" - see anomaly.get_door_status_for_vehicle.
     last_exploitation = get_last_exploitation_time(metrics_df)
-    reference_time = last_exploitation or datetime.now()
+    reference_time = last_exploitation or utc_now()
 
     doors = get_door_status_for_vehicle(door_df, num_parc, reference_time, expected_doors=expected_doors)
     functional_count = sum(1 for d in doors if d["status"] == "fonctionnel")
+
+    # A door with zero data, or genuinely stale relative to reference_time,
+    # must make the whole vehicle "anomalie" - it was previously possible
+    # for the vehicle-level status (WEBOX-only) to say "fonctionnel" while
+    # a door showed "Aucune donnée".
+    overall_status = vehicle["status"]
+    if any(d["status"] == "anomalie" for d in doors):
+        overall_status = "anomalie"
 
     door_scheme = rolling_stock["door_scheme"] if rolling_stock else None
     for d in doors:
         d["porte_physique"] = get_physical_door_number(door_scheme, d["porte"])
 
-    now = datetime.now()
+    now = utc_now()
     last_exploitation_hours = (now - last_exploitation).total_seconds() / 3600 if last_exploitation else None
 
     return {
         "num_parc": num_parc,
-        "last_seen": vehicle["last_seen"],
+        "last_seen": to_local_iso(pd.Timestamp(vehicle["last_seen"])),
         "hours_since_last_seen": vehicle["hours_since_last_seen"],
-        "status": vehicle["status"],
-        "last_exploitation": last_exploitation.isoformat() if last_exploitation else None,
+        "status": overall_status,
+        "last_exploitation": to_local_iso(last_exploitation),
         "hours_since_last_exploitation": round(last_exploitation_hours, 1) if last_exploitation_hours is not None else None,
         "rolling_stock_type": rolling_stock["type"] if rolling_stock else "Type inconnu (non configuré)",
         "door_count_functional": functional_count,
@@ -145,11 +198,10 @@ def get_vehicle_detail(num_parc: int, since: datetime | None = Query(default=Non
 def check_vehicle_live(num_parc: int):
     """
     Lightweight, on-demand check used by the front-end's
-    "vérification post-intervention" mode. Only looks back 2 days, since
-    we're specifically watching for a brand-new report after a repair.
+    "vérification post-intervention" mode. Just re-runs the (already fast,
+    per-vehicle) detail lookup - no separate narrowing needed.
     """
-    since = datetime.now() - timedelta(days=2)
-    return get_vehicle_detail(num_parc, since=since)
+    return get_vehicle_detail(num_parc)
 
 
 @router.get("/history/{num_parc}")
@@ -206,7 +258,7 @@ def get_vehicle_history(
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
 
     reports = [
-        {"timestamp": e["timestamp"].strftime("%Y-%m-%dT%H:%M:%S"), "porte": e["porte"]}
+        {"timestamp": to_local_iso(e["timestamp"]), "porte": e["porte"]}
         for e in entries
     ]
 
