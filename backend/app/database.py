@@ -148,8 +148,6 @@ def fetch_metrics(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
             SELECT
                 COALESCE(num_parc_wb, num_parc_sae) AS num_parc,
                 operation_state,
-                latitude,
-                longitude,
                 date_wb,
                 heure_wb,
                 date_sae,
@@ -188,8 +186,6 @@ def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
             SELECT
                 COALESCE(num_parc_wb, num_parc_sae) AS num_parc,
                 operation_state,
-                latitude,
-                longitude,
                 date_wb,
                 heure_wb,
                 date_sae,
@@ -208,27 +204,10 @@ def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     return df
 
 
-def fetch_door_counts(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch recent rows from the "door_counts" table, for the whole fleet.
-    Passenger volumes (PX_IN / PX_OUT) are only used internally to determine
-    the last-seen timestamp per door - they are dropped before being returned
-    by the API (see anomaly.get_door_status_for_vehicle).
-    """
-    if USE_SAMPLE_DATA:
-        df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")
-    else:
-        query = """
-            SELECT *
-            FROM door_counts
-            WHERE date_wb >= CURRENT_DATE - INTERVAL '%s days'
-        """
-        with get_connection() as conn:
-            df = pd.read_sql(query % days_back, conn)
-        df = df.rename(columns={"num_parc_wb": "num_parc"})
-
-    df["timestamp"] = _combine_date_time(df, "date_wb", "heure_wb")
-    return df
+DOOR_COUNTS_COLUMNS = [
+    "num_parc_wb", "date_wb", "heure_wb",
+    *[f'"P{n}_{d}"' for n in range(1, 17) for d in ("IN", "OUT")],
+]
 
 
 def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
@@ -238,7 +217,8 @@ def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     Used by the vehicle detail, live-check and history endpoints. Filtering
     directly in SQL (instead of fetching the whole fleet and filtering with
     pandas) keeps these fast, since door_counts holds every vehicle's data
-    with up to 16 doors x 2 columns each.
+    with up to 16 doors x 2 columns each. Columns are listed explicitly
+    (not SELECT *) to only pull what's actually used.
 
     "since" lets the caller narrow the window further when a more recent
     reference point is already known (see routes/vehicles.py) - bounded by
@@ -250,8 +230,8 @@ def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")
         df = df[df["num_parc"] == int(num_parc)]
     else:
-        query = """
-            SELECT *
+        query = f"""
+            SELECT {', '.join(DOOR_COUNTS_COLUMNS)}
             FROM door_counts
             WHERE date_wb >= %s
               AND num_parc_wb = %s
@@ -269,18 +249,18 @@ def get_door_columns(door_counts_df: pd.DataFrame):
     return _detect_door_columns(door_counts_df.columns)
 
 
-def fetch_door_last_seen_aggregate(days_back: int = 30) -> pd.DataFrame:
+def fetch_door_last_seen_aggregate(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
     """
     For the whole fleet, compute the last-seen timestamp of EACH door
     directly in SQL (one aggregate query, GROUP BY vehicle) instead of
-    fetching every raw row like fetch_door_counts does.
+    fetching every raw row.
 
     This lets the global view (CDC 3.1) also catch door-level anomalies
     (CDC 4.2) - e.g. one dead door out of sixteen - without paying the cost
     of a full door_counts fetch for the entire fleet.
 
-    days_back defaults to 30 (business decision - a compromise between the
-    full 60-day floor used elsewhere and query cost on the real database).
+    days_back defaults to HISTORY_LOOKBACK_DAYS (30 days) - the same window
+    used everywhere else in the app, for consistency.
 
     Returns one row per vehicle with columns num_parc, p1_last .. p16_last.
     A NULL column for a given door either means it hasn't reported within
@@ -303,15 +283,22 @@ def fetch_door_last_seen_aggregate(days_back: int = 30) -> pd.DataFrame:
             rows.append(row)
         return pd.DataFrame(rows)
 
-    door_case_exprs = [
-        f'MAX(CASE WHEN "P{n}_IN" IS NOT NULL OR "P{n}_OUT" IS NOT NULL '
-        f'THEN date_wb + heure_wb END) AS p{n}_last'
+    door_filter_exprs = [
+        f'MAX(ts) FILTER (WHERE "P{n}_IN" IS NOT NULL OR "P{n}_OUT" IS NOT NULL) AS p{n}_last'
         for n in range(1, 17)
     ]
+    door_cols = ", ".join(f'"P{n}_IN", "P{n}_OUT"' for n in range(1, 17))
     query = f"""
-        SELECT num_parc_wb AS num_parc, {', '.join(door_case_exprs)}
-        FROM door_counts
-        WHERE date_wb >= CURRENT_DATE - INTERVAL '{days_back} days'
+        WITH base AS (
+            SELECT
+                num_parc_wb,
+                date_wb + heure_wb AS ts,
+                {door_cols}
+            FROM door_counts
+            WHERE date_wb >= CURRENT_DATE - INTERVAL '{days_back} days'
+        )
+        SELECT num_parc_wb AS num_parc, {', '.join(door_filter_exprs)}
+        FROM base
         GROUP BY num_parc_wb
     """
     with get_connection() as conn:

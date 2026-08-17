@@ -19,10 +19,10 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 # Useful for development before the DSI validates the application's DB access.
 USE_SAMPLE_DATA = os.getenv("USE_SAMPLE_DATA", "true").lower() == "true"
 
-# How far back to look for data. Per business decision, anything older than
-# 2 months is not useful for maintenance purposes (we care about the current
-# state and how long a vehicle/door has been in it, not deep history).
-HISTORY_LOOKBACK_DAYS = 60
+# How far back to look for data. Unified to 30 days everywhere (business
+# decision) - both for anomaly detection windows and for the history
+# feature's maximum browsable range.
+HISTORY_LOOKBACK_DAYS = 30
 
 # operation_state values (per BDD3 doc) that count as the vehicle genuinely
 # being in active service. Used to find the last time a vehicle was truly
