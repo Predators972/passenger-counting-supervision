@@ -82,6 +82,7 @@ def get_door_status_for_vehicle(
     num_parc,
     reference_time: datetime,
     expected_doors: list[int] | None = None,
+    minimum_doors: int = 0,
 ) -> list[dict]:
     """
     Build the door-level detail for one vehicle (CDC 3.2 / 4.2).
@@ -105,7 +106,18 @@ def get_door_status_for_vehicle(
     """
     vehicle_df = door_counts_df[door_counts_df["num_parc"] == num_parc]
 
-    candidate_doors = expected_doors if expected_doors is not None else get_door_columns(vehicle_df)
+    if expected_doors is not None:
+        candidate_doors = expected_doors
+    else:
+        # Dynamic mode (rolling stock type without a fixed door_count, e.g.
+        # buses): a door that never reported in the fetched window is
+        # ambiguous - it might not exist on this vehicle, or it might be
+        # genuinely dead. minimum_doors is a known floor (e.g. "every bus
+        # has at least 2 doors") that resolves this for the doors we're
+        # SURE exist: they're always included below, even with zero data,
+        # rather than being silently dropped as if they didn't exist.
+        candidate_doors = sorted(set(get_door_columns(vehicle_df)) | set(range(1, minimum_doors + 1)))
+
     door_last_seen = {}
 
     for door_num in candidate_doors:
@@ -121,9 +133,13 @@ def get_door_status_for_vehicle(
         door_last_seen[door_num] = reported_rows["timestamp"].max() if not reported_rows.empty else None
 
     if expected_doors is None:
-        # Fallback mode: drop doors that never reported in the fetched window
-        # (see docstring - we can't yet tell "silent" from "doesn't exist").
-        door_last_seen = {d: ts for d, ts in door_last_seen.items() if ts is not None}
+        # Fallback mode: drop doors that never reported AND are above the
+        # guaranteed minimum floor (see docstring - still can't tell
+        # "silent" from "doesn't exist" for those beyond the known floor).
+        door_last_seen = {
+            d: ts for d, ts in door_last_seen.items()
+            if ts is not None or d <= minimum_doors
+        }
 
     now = utc_now()
     results = []

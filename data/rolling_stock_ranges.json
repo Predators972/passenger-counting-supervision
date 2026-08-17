@@ -11,7 +11,8 @@
     "range_end": 2069,
     "type": "Tramway CITADIS 302",
     "door_scheme": "tram_302",
-    "door_count": 12
+    "door_count": null,
+    "minimum_doors": 12
   },
   {
     "range_start": 2070,
@@ -32,20 +33,23 @@
     "range_end": 699,
     "type": "Bus gaz",
     "door_scheme": "bus",
-    "door_count": null
+    "door_count": null,
+    "minimum_doors": 2
   },
   {
     "range_start": 700,
-    "range_end": 799,
-    "type": "Bus électrique",
+    "range_end": 730,
+    "type": "Bustram électrique",
     "door_scheme": "bus",
-    "door_count": null
+    "door_count": null,
+    "minimum_doors": 3
   },
   {
-    "range_start": 800,
+    "range_start": 731,
     "range_end": 1000,
     "type": "Bus gaz",
     "door_scheme": "bus",
-    "door_count": null
+    "door_count": null,
+    "minimum_doors": 2
   }
 ]

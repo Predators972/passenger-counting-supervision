@@ -71,15 +71,19 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
         agg_row = door_agg_by_vehicle.get(v["num_parc"])
 
         # Known door count -> we can tell "missing" from "doesn't exist".
-        # Unknown (e.g. buses) -> only consider doors that have reported
-        # something within the 30-day window (same fallback limitation as
-        # the detail view when the rolling stock type isn't configured).
+        # Unknown (e.g. buses) -> doors within the known minimum floor are
+        # always checked (even with zero data, per fleet_reference.py -
+        # every bus has at least that many doors), doors above the floor
+        # are only checked if they've reported at least once (same fallback
+        # limitation as the detail view for anything beyond the floor).
+        minimum_doors = rolling_stock["minimum_doors"] if rolling_stock else 0
         if rolling_stock and rolling_stock["door_count"] is not None:
             candidate_doors = range(1, rolling_stock["door_count"] + 1)
         elif agg_row is not None:
-            candidate_doors = [n for n in range(1, 17) if pd.notna(agg_row.get(f"p{n}_last"))]
+            reported_doors = {n for n in range(1, 17) if pd.notna(agg_row.get(f"p{n}_last"))}
+            candidate_doors = sorted(reported_doors | set(range(1, minimum_doors + 1)))
         else:
-            candidate_doors = []
+            candidate_doors = range(1, minimum_doors + 1)
 
         door_timestamps = []
         has_missing_door = False
@@ -162,7 +166,11 @@ def get_vehicle_detail(num_parc: int):
     last_exploitation = get_last_exploitation_time(metrics_df)
     reference_time = last_exploitation or utc_now()
 
-    doors = get_door_status_for_vehicle(door_df, num_parc, reference_time, expected_doors=expected_doors)
+    doors = get_door_status_for_vehicle(
+        door_df, num_parc, reference_time,
+        expected_doors=expected_doors,
+        minimum_doors=rolling_stock["minimum_doors"] if rolling_stock else 0,
+    )
     functional_count = sum(1 for d in doors if d["status"] == "fonctionnel")
 
     # A door with zero data, or genuinely stale relative to reference_time,

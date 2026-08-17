@@ -54,14 +54,25 @@ def _load_ranges():
 
 def get_rolling_stock(num_parc):
     """
-    Return {"type": str, "door_count": int | None, "door_scheme": str | None}
-    for the given vehicle number, or None if no matching range is configured
-    OR if num_parc is invalid/unreadable (e.g. NaN from a row with missing
-    num_parc_wb/num_parc_sae in BDD3) - a bad value here must not crash the
-    whole fleet listing, just exclude that one vehicle.
-    door_count can be None (e.g. buses, whose door count varies by model even
-    within the same energy type) - in that case callers should fall back to
-    dynamic door-count detection instead of a fixed expected count.
+    Return {"type": str, "door_count": int | None, "door_scheme": str | None,
+    "minimum_doors": int} for the given vehicle number, or None if no
+    matching range is configured OR if num_parc is invalid/unreadable
+    (e.g. NaN from a row with missing num_parc_wb/num_parc_sae in BDD3) -
+    a bad value here must not crash the whole fleet listing, just exclude
+    that one vehicle.
+
+    door_count can be None (e.g. buses, whose exact door count varies by
+    model - some have 2 doors, some 3, future longer ones may have 4) - in
+    that case callers fall back to dynamic door-count detection instead of
+    a fixed expected count (see anomaly.get_door_status_for_vehicle).
+
+    minimum_doors is a floor used only when door_count is None: doors up to
+    this number are ALWAYS shown, even with zero data, since we know for a
+    fact every vehicle of this type has at least that many doors (e.g. no
+    bus has ever had just 1 door). This avoids silently hiding a genuinely
+    dead door just because it never reported anything in the lookback
+    window - only doors ABOVE this floor remain purely dynamic (shown only
+    if they've reported at least once), since we can't be sure they exist.
     """
     global _ranges_cache
     if _ranges_cache is None:
@@ -78,6 +89,7 @@ def get_rolling_stock(num_parc):
                 "type": entry["type"],
                 "door_count": entry.get("door_count"),
                 "door_scheme": entry.get("door_scheme"),
+                "minimum_doors": entry.get("minimum_doors", 0),
             }
     return None
 
