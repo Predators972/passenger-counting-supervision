@@ -4,18 +4,18 @@
 const API_BASE = "/api";
 
 // Quick reference to the relevant case in Procedure_maintenance_WB, shown to the
-// maintainer once an anomaly is identified, so they don't have to search for it.
+// maintainer once a door anomaly is identified, so they don't have to search for it.
+// Which case is shown depends on how many doors are affected - see renderVehicleDetail.
 const PROCEDURE_HINTS = {
-  vehicle: `
-    <strong>Anomalie véhicule (WEBOX) :</strong> aucune remontée depuis plus de 2 jours.
-    Voir "Cas 1 - Pas de communication 4G" dans la procédure de maintenance :
-    vérifier l'antenne 4G, la carte SIM, redémarrer la WEBOX, sinon la remplacer.
+  allDoors: `
+    <strong>Toutes les portes sont en anomalie</strong> - le problème vient probablement
+    de la WEBOX elle-même. Voir <strong>Cas 1</strong> de la procédure de maintenance :
+    carte SIM, antenne 4G, câble WEBOX ↔ switch, WEBOX plantée - redémarrer ou remplacer si besoin.
   `,
-  door: `
-    <strong>Anomalie porte (EYES) :</strong> une porte ne remonte plus alors que
-    les autres fonctionnent. Voir "Cas 1 - Pas de signal dans CARE3" (EYES) dans
-    la procédure de maintenance : vérifier la LED de l'EYES, les câbles M12/Molex,
-    le port du switch correspondant.
+  someDoors: `
+    <strong>Certaines portes seulement sont en anomalie</strong> - le problème est
+    probablement localisé. Voir <strong>Cas 2</strong> de la procédure de maintenance :
+    switch, ports réseau, câbles M12/Molex/alimentation, ou capteur EYES défaillant.
   `,
 };
 
@@ -190,10 +190,10 @@ function renderVehicleDetail(data) {
 
   const grid = document.getElementById("door-grid");
   grid.innerHTML = "";
-  let hasDoorAnomaly = false;
+  let anomalyDoorCount = 0;
 
   data.doors.forEach(d => {
-    if (d.status === "anomalie") hasDoorAnomaly = true;
+    if (d.status === "anomalie") anomalyDoorCount++;
     const cell = document.createElement("div");
     cell.className = `door-cell ${d.status === 'anomalie' ? 'door-anomaly' : 'door-ok'}`;
     cell.innerHTML = `
@@ -203,15 +203,21 @@ function renderVehicleDetail(data) {
     grid.appendChild(cell);
   });
 
+  // The procedure reminder is driven purely by door status (including
+  // "Aucune donnée" doors, which count as anomalie) - never by the
+  // vehicle-level WEBOX status alone, so it doesn't show for a vehicle
+  // whose doors are all fine.
   const hintEl = document.getElementById("procedure-hint");
-  if (data.status === "anomalie" && !hasDoorAnomaly) {
-    hintEl.innerHTML = PROCEDURE_HINTS.vehicle;
-    hintEl.classList.remove("hidden");
-  } else if (hasDoorAnomaly) {
-    hintEl.innerHTML = PROCEDURE_HINTS.door;
+  const totalDoors = data.doors.length;
+
+  if (anomalyDoorCount === 0) {
+    hintEl.classList.add("hidden");
+  } else if (anomalyDoorCount === totalDoors) {
+    hintEl.innerHTML = PROCEDURE_HINTS.allDoors;
     hintEl.classList.remove("hidden");
   } else {
-    hintEl.classList.add("hidden");
+    hintEl.innerHTML = PROCEDURE_HINTS.someDoors;
+    hintEl.classList.remove("hidden");
   }
 }
 
