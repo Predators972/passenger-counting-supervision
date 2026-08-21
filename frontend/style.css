@@ -177,3 +177,20 @@ button {
   max-height: 300px;
   overflow-y: auto;
 }
+
+.scrollable-table {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 24px;
+  border: 1px solid #ddd;
+}
+
+.scrollable-table table {
+  margin: 0;
+}
+
+.scrollable-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}

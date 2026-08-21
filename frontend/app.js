@@ -313,6 +313,76 @@ function searchVehicleFromInput() {
   showVehicleDetail(value);
 }
 
+// ---------- Anomalies SAE / GPS ----------
+
+// Fetched once per "Rafraîchir" click, then filtered client-side - same
+// pattern as allVehicles for the global view.
+let allSaeGpsVehicles = [];
+
+async function loadSaeGpsAnomalies() {
+  const res = await fetch(`${API_BASE}/vehicles-sae-gps`);
+  const data = await res.json();
+  allSaeGpsVehicles = data.vehicles;
+
+  populateSaeGpsTypeFilter();
+  renderSaeGpsTables();
+
+  document.getElementById("sae-gps-last-refresh").textContent =
+    "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+}
+
+function populateSaeGpsTypeFilter() {
+  const select = document.getElementById("sae-gps-type-filter");
+  const previousValue = select.value;
+  const types = [...new Set(allSaeGpsVehicles.map(v => v.rolling_stock_type))].sort();
+
+  select.innerHTML = '<option value="">Tous</option>';
+  types.forEach(type => {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = type;
+    select.appendChild(option);
+  });
+
+  if (types.includes(previousValue)) select.value = previousValue;
+}
+
+function getFilteredSaeGpsVehicles(field) {
+  const statusFilter = document.getElementById("sae-gps-status-filter").value;
+  const typeFilter = document.getElementById("sae-gps-type-filter").value;
+  const search = document.getElementById("sae-gps-search").value.trim();
+
+  return allSaeGpsVehicles
+    .filter(v => !statusFilter || v[field].status === statusFilter)
+    .filter(v => !typeFilter || v.rolling_stock_type === typeFilter)
+    .filter(v => !search || String(v.num_parc).includes(search));
+}
+
+function renderSaeGpsTables() {
+  renderFieldTable("sae-table", getFilteredSaeGpsVehicles("sae"), "sae");
+  renderFieldTable("gps-table", getFilteredSaeGpsVehicles("gps"), "gps");
+}
+
+function renderFieldTable(tableId, vehicles, field) {
+  const tbody = document.querySelector(`#${tableId} tbody`);
+  tbody.innerHTML = "";
+
+  vehicles.forEach(v => {
+    const info = v[field];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${v.num_parc}</td>
+      <td>${v.rolling_stock_type}</td>
+      <td>${formatDate(info.last_seen)}<br><small>${formatDuration(info.hours_since_last_seen)}</small></td>
+      <td>${info.missing_ratio}%</td>
+      <td class="${info.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
+        ${info.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 // ---------- Navigation par onglets ----------
 
 function switchTab(tabId) {
@@ -342,9 +412,14 @@ document.getElementById("col-last-seen").addEventListener("click", () => toggleS
 document.getElementById("live-check-btn").addEventListener("click", startLiveCheck);
 document.getElementById("history-btn").addEventListener("click", loadHistory);
 document.getElementById("history-door-filter").addEventListener("change", loadHistory);
+document.getElementById("sae-gps-refresh-btn").addEventListener("click", loadSaeGpsAnomalies);
+document.getElementById("sae-gps-status-filter").addEventListener("change", renderSaeGpsTables);
+document.getElementById("sae-gps-type-filter").addEventListener("change", renderSaeGpsTables);
+document.getElementById("sae-gps-search").addEventListener("input", renderSaeGpsTables);
 
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
 document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));
+document.getElementById("tab-btn-sae-gps").addEventListener("click", () => switchTab("sae-gps-view"));
 
 document.getElementById("detail-search-btn").addEventListener("click", searchVehicleFromInput);
 document.getElementById("detail-vehicle-input").addEventListener("keydown", (e) => {

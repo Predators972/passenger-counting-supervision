@@ -39,3 +39,19 @@ VEHICLE_ANOMALY_THRESHOLD_HOURS = 48
 # more than this many hours, while other doors on the same vehicle are still
 # reporting more recent data.
 DOOR_ANOMALY_THRESHOLD_HOURS = 48
+
+# Section 4.3 (SAE) / 4.4 (GPS) of the CDC. Two combined triggers:
+# - a silence duration (in hours), measured since the vehicle's own last
+#   communication (not wall-clock "now" - see anomaly.get_sae_gps_status)
+# - a "degraded mode" ratio: share of reports over HISTORY_LOOKBACK_DAYS
+#   missing the field, even if it's not a total cutoff.
+# SAE should almost always be present as soon as a vehicle communicates at
+# all, so its tolerance is low. GPS can legitimately be blocked at some
+# stops depending on surrounding buildings, so its tolerance is higher.
+# These are business decisions with no confirmed real-world reference yet -
+# easy to tune here once more data/feedback is available.
+SAE_SILENCE_THRESHOLD_HOURS = 48
+SAE_MISSING_RATIO_THRESHOLD = 0.10  # >10% of reports missing SAE = anomalie
+
+GPS_SILENCE_THRESHOLD_HOURS = 48
+GPS_MISSING_RATIO_THRESHOLD = 0.25  # >25% of reports missing GPS = anomalie

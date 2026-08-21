@@ -166,6 +166,43 @@ def fetch_metrics(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
     return df
 
 
+def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+    """
+    Fetch recent "metrics" rows for the whole fleet, including num_parc_sae,
+    latitude and longitude - used ONLY by the SAE/GPS anomaly tab (CDC 4.3
+    and 4.4). Kept as a separate query from fetch_metrics() on purpose: the
+    global fleet view doesn't need these fields, so they're not selected
+    there to keep that query lean.
+    """
+    if USE_SAMPLE_DATA:
+        df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
+        for col in ("date_sae", "heure_sae", "num_parc_sae", "latitude", "longitude"):
+            if col not in df.columns:
+                df[col] = None
+    else:
+        query = """
+            SELECT
+                COALESCE(num_parc_wb, num_parc_sae) AS num_parc,
+                num_parc_sae,
+                latitude,
+                longitude,
+                date_wb,
+                heure_wb,
+                date_sae,
+                heure_sae
+            FROM metrics
+            WHERE date_wb >= CURRENT_DATE - INTERVAL '%s days'
+               OR date_sae >= CURRENT_DATE - INTERVAL '%s days'
+        """
+        with get_connection() as conn:
+            df = pd.read_sql(query % (days_back, days_back), conn)
+
+    ts_wb = _combine_date_time(df, "date_wb", "heure_wb")
+    ts_sae = _combine_date_time_sae_to_utc(df, "date_sae", "heure_sae")
+    df["timestamp"] = ts_wb.combine_first(ts_sae)
+    return df
+
+
 def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     """
     Fetch "metrics" rows for a single vehicle only - filtered directly in

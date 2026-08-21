@@ -14,10 +14,13 @@ import pandas as pd
 
 from app.database import (
     fetch_metrics, fetch_metrics_for_vehicle, fetch_door_counts_for_vehicle,
-    fetch_door_last_seen_aggregate, get_door_columns, utc_now, to_local_iso,
+    fetch_door_last_seen_aggregate, fetch_metrics_sae_gps, get_door_columns, utc_now, to_local_iso,
 )
 from app.config import DOOR_ANOMALY_THRESHOLD_HOURS
-from app.anomaly import get_vehicle_overview, get_door_status_for_vehicle, get_last_exploitation_time, get_last_exploitation_per_vehicle
+from app.anomaly import (
+    get_vehicle_overview, get_door_status_for_vehicle, get_last_exploitation_time,
+    get_last_exploitation_per_vehicle, get_sae_gps_status,
+)
 from app.fleet_reference import get_rolling_stock, get_physical_door_number, is_known_vehicle
 
 router = APIRouter(prefix="/api", tags=["vehicles"])
@@ -271,3 +274,21 @@ def get_vehicle_history(
     ]
 
     return {"num_parc": num_parc, "reports": reports}
+
+
+@router.get("/vehicles-sae-gps")
+def list_vehicles_sae_gps():
+    """
+    CDC 4.3 (absence de trame SAE) + 4.4 (anomalie GPS) - one row per known
+    vehicle with SAE and GPS status. Uses a dedicated query (metrics table
+    only, but with num_parc_sae/latitude/longitude) - see
+    database.fetch_metrics_sae_gps.
+    """
+    metrics_df = fetch_metrics_sae_gps()
+    vehicles = get_sae_gps_status(metrics_df)
+
+    vehicles = [v for v in vehicles if is_known_vehicle(v["num_parc"])]
+    for v in vehicles:
+        v["rolling_stock_type"] = get_rolling_stock(v["num_parc"])["type"]
+
+    return {"vehicles": vehicles}
