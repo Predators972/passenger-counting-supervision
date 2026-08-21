@@ -203,6 +203,45 @@ def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFram
     return df
 
 
+def fetch_metrics_sae_gps_for_vehicle(num_parc, since=None) -> pd.DataFrame:
+    """
+    Same as fetch_metrics_sae_gps, but filtered to a single vehicle in SQL -
+    used by the SAE/GPS history feature (one vehicle at a time, so filtering
+    server-side keeps it fast, same pattern as fetch_metrics_for_vehicle).
+    """
+    start_date = _lookback_start(since)
+
+    if USE_SAMPLE_DATA:
+        df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
+        df = df[df["num_parc"] == int(num_parc)]
+        for col in ("date_sae", "heure_sae", "num_parc_sae", "latitude", "longitude"):
+            if col not in df.columns:
+                df[col] = None
+    else:
+        query = """
+            SELECT
+                COALESCE(num_parc_wb, num_parc_sae) AS num_parc,
+                num_parc_sae,
+                latitude,
+                longitude,
+                date_wb,
+                heure_wb,
+                date_sae,
+                heure_sae
+            FROM metrics
+            WHERE (num_parc_wb = %s OR num_parc_sae = %s)
+              AND (date_wb >= %s OR date_sae >= %s)
+        """
+        params = (num_parc, num_parc, start_date.date(), start_date.date())
+        with get_connection() as conn:
+            df = pd.read_sql(query, conn, params=params)
+
+    ts_wb = _combine_date_time(df, "date_wb", "heure_wb")
+    ts_sae = _combine_date_time_sae_to_utc(df, "date_sae", "heure_sae")
+    df["timestamp"] = ts_wb.combine_first(ts_sae)
+    return df
+
+
 def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     """
     Fetch "metrics" rows for a single vehicle only - filtered directly in

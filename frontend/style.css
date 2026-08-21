@@ -194,3 +194,25 @@ button {
   top: 0;
   z-index: 1;
 }
+
+.history-columns {
+  display: flex;
+  gap: 16px;
+}
+
+.history-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-column h4 {
+  margin-bottom: 4px;
+}
+
+.history-column ul {
+  background: white;
+  padding: 12px 12px 12px 32px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+}

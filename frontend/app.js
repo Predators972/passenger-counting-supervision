@@ -379,7 +379,55 @@ function renderFieldTable(tableId, vehicles, field) {
         ${info.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
       </td>
     `;
+    tr.addEventListener("click", () => {
+      document.getElementById("sae-gps-history-vehicle-input").value = v.num_parc;
+      loadSaeGpsHistory();
+    });
     tbody.appendChild(tr);
+  });
+}
+
+// ---------- Historique SAE / GPS ----------
+
+async function loadSaeGpsHistory() {
+  const numParc = document.getElementById("sae-gps-history-vehicle-input").value.trim();
+  if (!numParc) {
+    alert("Veuillez saisir un numéro de véhicule.");
+    return;
+  }
+
+  const start = document.getElementById("sae-gps-history-start").value;
+  const end = document.getElementById("sae-gps-history-end").value;
+
+  const url = new URL(`${API_BASE}/history-sae-gps/${numParc}`, window.location.origin);
+  if (start) url.searchParams.set("start_date", start);
+  if (end) url.searchParams.set("end_date", end);
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    alert("Véhicule introuvable.");
+    return;
+  }
+  const data = await res.json();
+
+  renderPresenceHistory("sae-history-list", data.reports, "sae_present");
+  renderPresenceHistory("gps-history-list", data.reports, "gps_present");
+}
+
+function renderPresenceHistory(listId, reports, presentField) {
+  const list = document.getElementById(listId);
+  list.innerHTML = "";
+
+  if (reports.length === 0) {
+    list.innerHTML = "<li>Aucune remontée sur cette période.</li>";
+    return;
+  }
+
+  reports.forEach(r => {
+    const li = document.createElement("li");
+    const present = r[presentField];
+    li.innerHTML = `${formatDate(r.timestamp)} — <span class="${present ? 'status-ok' : 'status-anomaly'}">${present ? 'Présent' : 'Absent'}</span>`;
+    list.appendChild(li);
   });
 }
 
@@ -416,6 +464,7 @@ document.getElementById("sae-gps-refresh-btn").addEventListener("click", loadSae
 document.getElementById("sae-gps-status-filter").addEventListener("change", renderSaeGpsTables);
 document.getElementById("sae-gps-type-filter").addEventListener("change", renderSaeGpsTables);
 document.getElementById("sae-gps-search").addEventListener("input", renderSaeGpsTables);
+document.getElementById("sae-gps-history-btn").addEventListener("click", loadSaeGpsHistory);
 
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
 document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));
@@ -426,5 +475,6 @@ document.getElementById("detail-vehicle-input").addEventListener("keydown", (e) 
   if (e.key === "Enter") searchVehicleFromInput();
 });
 
-// Initial load
-loadVehicles();
+// No automatic load on page start - the user must click "Rafraîchir" explicitly.
+document.getElementById("last-refresh").textContent = "Cliquez sur \"Rafraîchir\" pour charger les données.";
+document.getElementById("sae-gps-last-refresh").textContent = "Cliquez sur \"Rafraîchir\" pour charger les données.";

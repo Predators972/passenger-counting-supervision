@@ -14,7 +14,8 @@ import pandas as pd
 
 from app.database import (
     fetch_metrics, fetch_metrics_for_vehicle, fetch_door_counts_for_vehicle,
-    fetch_door_last_seen_aggregate, fetch_metrics_sae_gps, get_door_columns, utc_now, to_local_iso,
+    fetch_door_last_seen_aggregate, fetch_metrics_sae_gps, fetch_metrics_sae_gps_for_vehicle,
+    get_door_columns, utc_now, to_local_iso,
 )
 from app.config import DOOR_ANOMALY_THRESHOLD_HOURS
 from app.anomaly import (
@@ -292,3 +293,40 @@ def list_vehicles_sae_gps():
         v["rolling_stock_type"] = get_rolling_stock(v["num_parc"])["type"]
 
     return {"vehicles": vehicles}
+
+
+@router.get("/history-sae-gps/{num_parc}")
+def get_vehicle_history_sae_gps(
+    num_parc: int,
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+):
+    """
+    History of SAE/GPS presence for one vehicle over a period, from the
+    "metrics" table - one entry per report with a flag for whether SAE and
+    GPS were present on that specific row. Sorted from the most recent to
+    the oldest. Used by the two side-by-side history blocks in the
+    "Anomalies SAE / GPS" tab.
+    """
+    if not is_known_vehicle(num_parc):
+        raise HTTPException(status_code=404, detail="Véhicule introuvable")
+
+    df = fetch_metrics_sae_gps_for_vehicle(num_parc)
+
+    if start_date:
+        df = df[df["timestamp"].dt.date >= start_date]
+    if end_date:
+        df = df[df["timestamp"].dt.date <= end_date]
+
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp", ascending=False)
+
+    reports = [
+        {
+            "timestamp": to_local_iso(row["timestamp"]),
+            "sae_present": bool(pd.notna(row["num_parc_sae"])),
+            "gps_present": bool(pd.notna(row["latitude"]) and pd.notna(row["longitude"])),
+        }
+        for _, row in df.iterrows()
+    ]
+
+    return {"num_parc": num_parc, "reports": reports}

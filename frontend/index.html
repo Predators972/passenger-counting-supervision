@@ -24,8 +24,8 @@
           Filtrer par état :
           <select id="status-filter">
             <option value="">Tous</option>
-            <option value="anomalie">Anomalie</option>
             <option value="fonctionnel">Fonctionnel</option>
+            <option value="anomalie">Anomalie</option>
           </select>
         </label>
         <label>
@@ -168,6 +168,28 @@
           <tbody></tbody>
 
         </table>
+      </div>
+
+      <h3>Historique SAE / GPS</h3>
+      <div class="toolbar">
+        <label>Du <input type="date" id="sae-gps-history-start"></label>
+        <label>Au <input type="date" id="sae-gps-history-end"></label>
+        <label>
+          Numéro de véhicule :
+          <input type="text" id="sae-gps-history-vehicle-input" placeholder="Ex: 1002">
+        </label>
+        <button id="sae-gps-history-btn">Afficher l'historique</button>
+      </div>
+
+      <div class="history-columns">
+        <div class="history-column">
+          <h4>Historique SAE</h4>
+          <ul id="sae-history-list"></ul>
+        </div>
+        <div class="history-column">
+          <h4>Historique GPS</h4>
+          <ul id="gps-history-list"></ul>
+        </div>
       </div>
     </section>
   </main>
