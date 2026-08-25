@@ -11,7 +11,7 @@ import pandas as pd
 
 from app.config import (
     VEHICLE_ANOMALY_THRESHOLD_HOURS, DOOR_ANOMALY_THRESHOLD_HOURS,
-    EXPLOITATION_STATES, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD,
+    EXPLOITATION_STATES, UNRELIABLE_OPERATION_STATES, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD,
     GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD,
 )
 from app.database import get_door_columns, utc_now, to_local_iso
@@ -42,17 +42,18 @@ def get_exploitation_case(metrics_df: pd.DataFrame):
 
     - "known": at least one row has operation_state 1 or 2 -> a real
       last_exploitation timestamp is available, used as normal.
-    - "stale": operation_state HAS been reported (e.g. 6 = hors service
-      dépôt) but never 1 or 2 within the window - the vehicle almost
-      certainly last ran before the window started. We know for a fact the
-      SAE trame itself is being received (operation_state came from it),
-      just not a comparable "since when" reference - so silence-based
-      checks (doors, SAE, GPS) must be skipped entirely for this vehicle;
-      only "zero data at all" and the SAE/GPS missing-ratio (where still
-      meaningful) remain valid signals.
-    - "unknown": operation_state has never been reported at all in the
-      window - genuine SAE silence, not just a long depot stay. Existing
-      "compare to now" fallback behavior still applies.
+    - "stale": operation_state HAS been reliably reported (e.g. 6 = hors
+      service dépôt) but never 1 or 2 within the window - the vehicle
+      almost certainly last ran before the window started. operation_state
+      = 0 ("SAEIV indisponible") does NOT count as reliable evidence here:
+      it means the SAE system itself was reporting as unavailable on that
+      row, so it doesn't prove the SAE trame is genuinely, reliably
+      received - only other non-null values do (see
+      config.UNRELIABLE_OPERATION_STATES).
+    - "unknown": operation_state has never been reliably reported in the
+      window (only ever 0, or never present at all) - genuine SAE silence,
+      not just a long depot stay. Existing "compare to now" fallback
+      behavior still applies.
 
     Returns (case, last_exploitation) - last_exploitation is only non-None
     for the "known" case.
@@ -60,8 +61,10 @@ def get_exploitation_case(metrics_df: pd.DataFrame):
     last_exploitation = get_last_exploitation_time(metrics_df)
     if last_exploitation is not None:
         return "known", last_exploitation
-    if "operation_state" in metrics_df.columns and metrics_df["operation_state"].notna().any():
-        return "stale", None
+    if "operation_state" in metrics_df.columns:
+        reliable = metrics_df["operation_state"].notna() & ~metrics_df["operation_state"].isin(UNRELIABLE_OPERATION_STATES)
+        if reliable.any():
+            return "stale", None
     return "unknown", None
 
 
@@ -90,14 +93,15 @@ def get_exploitation_case_per_vehicle(metrics_df: pd.DataFrame) -> dict:
         return {}
 
     result = {}
-    has_state = metrics_df.groupby("num_parc")["operation_state"].apply(lambda s: s.notna().any())
+    reliable_mask = metrics_df["operation_state"].notna() & ~metrics_df["operation_state"].isin(UNRELIABLE_OPERATION_STATES)
+    has_reliable_state = metrics_df.assign(_reliable=reliable_mask).groupby("num_parc")["_reliable"].any()
     last_exploitation_map = get_last_exploitation_per_vehicle(metrics_df)
 
     for num_parc in metrics_df["num_parc"].dropna().unique():
         last_exp = last_exploitation_map.get(num_parc)
         if last_exp is not None:
             result[num_parc] = ("known", last_exp)
-        elif has_state.get(num_parc, False):
+        elif has_reliable_state.get(num_parc, False):
             result[num_parc] = ("stale", None)
         else:
             result[num_parc] = ("unknown", None)

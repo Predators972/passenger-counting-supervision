@@ -30,6 +30,13 @@ HISTORY_LOOKBACK_DAYS = 30
 # (e.g. a maintainer walking past a door sensor triggers just that one door).
 EXPLOITATION_STATES = {1, 2}  # 1 = En service commercial, 2 = En HLP
 
+# operation_state = 0 means "SAEIV indisponible" - the SAE system itself was
+# reporting as unavailable on that row, so its presence there doesn't prove
+# the SAE trame is reliably received. A row with operation_state = 0 must
+# NOT count as evidence of a genuine "stale" exploitation case (see
+# anomaly.get_exploitation_case) - only other non-null values do.
+UNRELIABLE_OPERATION_STATES = {0}
+
 # --- Anomaly detection thresholds ---
 # Section 4.1 of the CDC: a vehicle is flagged when it hasn't reported any data
 # for more than this many hours. Fixed at 2 days for now (per business decision).
