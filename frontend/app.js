@@ -372,8 +372,8 @@ function renderFieldTable(tableId, vehicles, field) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${v.num_parc}</td>
-      <td>${v.rolling_stock_type}</td>
-      <td>${formatDate(info.last_seen)}<br><small>${formatDuration(info.hours_since_last_seen)}</small></td>
+      <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
+      <td>${v.last_exploitation ? formatDate(v.last_exploitation) + '<br><small>' + formatDuration(v.hours_since_last_exploitation) + '</small>' : 'Aucune donnée'}</td>
       <td>${info.missing_ratio}%</td>
       <td class="${info.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
         ${info.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}

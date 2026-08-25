@@ -169,36 +169,41 @@ def get_door_status_for_vehicle(
     return results
 
 
-def _field_status(group: pd.DataFrame, last_seen, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float):
+def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float):
     """
     Shared logic for get_sae_gps_status: given a vehicle's metrics rows and a
     boolean mask of which rows have the field present, compute:
     - last_present: last timestamp where the field was present (None if never)
-    - hours_since: hours between last_seen (the vehicle's own last
-      communication) and last_present - NOT wall-clock "now": as soon as a
-      vehicle communicates at all, this field is expected, so the only
-      meaningful reference is its own latest report.
+    - hours_since_last_seen: displayed duration, always relative to "now"
+      (for consistency with the rest of the UI)
     - missing_ratio: share of rows (over the fetched window) missing the field
-    - status: "anomalie" if either the silence duration or the missing ratio
-      exceeds its threshold
+    - status: "anomalie" if EITHER:
+        - the field's last presence is more than `silence_threshold` hours
+          BEFORE reference_time (the vehicle's last genuine exploitation) -
+          same pattern as door anomaly detection: a field present again
+          AFTER reference_time is never an anomaly, no matter how long ago,
+        - OR the missing ratio over the window exceeds `ratio_threshold`
+          (degraded mode).
     """
     total_rows = len(group)
     missing_ratio = 1 - (present_mask.sum() / total_rows) if total_rows else 1.0
 
     if present_mask.any():
         last_present = group.loc[present_mask, "timestamp"].max()
-        hours_since = (last_seen - last_present).total_seconds() / 3600
+        hours_behind_reference = (reference_time - last_present).total_seconds() / 3600
+        hours_since_now = (now - last_present).total_seconds() / 3600
     else:
         last_present = None
-        hours_since = None
+        hours_behind_reference = None
+        hours_since_now = None
 
-    is_silent = last_present is None or (hours_since is not None and hours_since > silence_threshold)
+    is_silent = last_present is None or (hours_behind_reference is not None and hours_behind_reference > silence_threshold)
     is_degraded = missing_ratio > ratio_threshold
     status = "anomalie" if (is_silent or is_degraded) else "fonctionnel"
 
     return {
         "last_seen": to_local_iso(last_present),
-        "hours_since_last_seen": round(hours_since, 1) if hours_since is not None else None,
+        "hours_since_last_seen": round(hours_since_now, 1) if hours_since_now is not None else None,
         "missing_ratio": round(missing_ratio * 100, 1),
         "status": status,
     }
@@ -207,12 +212,14 @@ def _field_status(group: pd.DataFrame, last_seen, present_mask: pd.Series, silen
 def get_sae_gps_status(metrics_df: pd.DataFrame, now: datetime = None) -> list[dict]:
     """
     CDC 4.3 (absence de trame SAE) / 4.4 (anomalie GPS) - one entry per
-    vehicle, combining a silence-duration check and a "degraded mode" ratio
-    check for each of num_parc_sae (SAE) and latitude/longitude (GPS).
+    vehicle, combining a silence-duration check (relative to the vehicle's
+    last genuine exploitation, not to "now" - see _field_status) and a
+    "degraded mode" ratio check for each of num_parc_sae (SAE) and
+    latitude/longitude (GPS).
 
-    metrics_df must include the num_parc_sae, latitude and longitude columns
-    - see database.fetch_metrics_sae_gps (a separate, dedicated query from
-    the one used by the global fleet view).
+    metrics_df must include num_parc_sae, latitude, longitude AND
+    operation_state - see database.fetch_metrics_sae_gps (a separate,
+    dedicated query from the one used by the global fleet view).
     """
     now = now or utc_now()
     valid = metrics_df.dropna(subset=["timestamp"])
@@ -222,16 +229,26 @@ def get_sae_gps_status(metrics_df: pd.DataFrame, now: datetime = None) -> list[d
     results = []
     for num_parc, group in valid.groupby("num_parc"):
         last_seen = group["timestamp"].max()
+        hours_since_last_seen = (now - last_seen).total_seconds() / 3600
+
+        last_exploitation = get_last_exploitation_time(group)
+        reference_time = last_exploitation or now
+        hours_since_exploitation = (
+            (now - last_exploitation).total_seconds() / 3600 if last_exploitation is not None else None
+        )
 
         sae_present = group["num_parc_sae"].notna()
         gps_present = group["latitude"].notna() & group["longitude"].notna()
 
-        sae = _field_status(group, last_seen, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD)
-        gps = _field_status(group, last_seen, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD)
+        sae = _field_status(group, now, reference_time, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD)
+        gps = _field_status(group, now, reference_time, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD)
 
         results.append({
             "num_parc": num_parc,
             "last_seen": to_local_iso(last_seen),
+            "hours_since_last_seen": round(hours_since_last_seen, 1),
+            "last_exploitation": to_local_iso(last_exploitation),
+            "hours_since_last_exploitation": round(hours_since_exploitation, 1) if hours_since_exploitation is not None else None,
             "sae": sae,
             "gps": gps,
         })

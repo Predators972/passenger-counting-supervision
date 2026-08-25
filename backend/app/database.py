@@ -176,7 +176,7 @@ def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFram
     """
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
-        for col in ("date_sae", "heure_sae", "num_parc_sae", "latitude", "longitude"):
+        for col in ("date_sae", "heure_sae", "num_parc_sae", "latitude", "longitude", "operation_state"):
             if col not in df.columns:
                 df[col] = None
     else:
@@ -186,6 +186,7 @@ def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFram
                 num_parc_sae,
                 latitude,
                 longitude,
+                operation_state,
                 date_wb,
                 heure_wb,
                 date_sae,
