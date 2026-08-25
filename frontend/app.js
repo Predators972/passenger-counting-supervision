@@ -3,6 +3,23 @@
 
 const API_BASE = "/api";
 
+// Shows a spinner next to a button and disables it while an async action
+// runs - so the user gets visual feedback and can't spam-click while a
+// request is in flight. Always restores the button state, even on error.
+async function withSpinner(buttonId, spinnerId, asyncFn) {
+  const button = document.getElementById(buttonId);
+  const spinner = document.getElementById(spinnerId);
+  button.disabled = true;
+  spinner.classList.remove("hidden");
+  try {
+    await asyncFn();
+  } finally {
+    button.disabled = false;
+    spinner.classList.add("hidden");
+  }
+}
+
+
 // Quick reference to the relevant case in Procedure_maintenance_WB, shown to the
 // maintainer once a door anomaly is identified, so they don't have to search for it.
 // Which case is shown depends on how many doors are affected - see renderVehicleDetail.
@@ -92,14 +109,16 @@ const globalKeyGetters = {
 };
 
 async function loadVehicles() {
-  const res = await fetch(API_BASE + "/vehicles");
-  const data = await res.json();
-  allVehicles = data.vehicles;
+  await withSpinner("refresh-btn", "refresh-spinner", async () => {
+    const res = await fetch(API_BASE + "/vehicles");
+    const data = await res.json();
+    allVehicles = data.vehicles;
 
-  populateTypeFilter();
-  renderVehicleTable();
-  document.getElementById("last-refresh").textContent =
-    "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+    populateTypeFilter();
+    renderVehicleTable();
+    document.getElementById("last-refresh").textContent =
+      "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+  });
 }
 
 function populateTypeFilter() {
@@ -188,27 +207,29 @@ async function showVehicleDetail(numParc) {
   currentVehicle = numParc;
   stopLiveCheck();
 
-  const url = new URL(`${API_BASE}/vehicles/${numParc}`, window.location.origin);
+  await withSpinner("detail-search-btn", "detail-search-spinner", async () => {
+    const url = new URL(`${API_BASE}/vehicles/${numParc}`, window.location.origin);
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    alert("Véhicule introuvable.");
-    return;
-  }
-  const data = await res.json();
+    const res = await fetch(url);
+    if (!res.ok) {
+      alert("Véhicule introuvable.");
+      return;
+    }
+    const data = await res.json();
 
-  document.getElementById("detail-placeholder").classList.add("hidden");
-  document.getElementById("detail-content").classList.remove("hidden");
+    document.getElementById("detail-placeholder").classList.add("hidden");
+    document.getElementById("detail-content").classList.remove("hidden");
 
-  renderVehicleDetail(data);
+    renderVehicleDetail(data);
 
-  // Default history range: last 7 days
-  const today = new Date();
-  const weekAgo = new Date(today);
-  weekAgo.setDate(today.getDate() - 7);
-  document.getElementById("history-end").value = today.toISOString().slice(0, 10);
-  document.getElementById("history-start").value = weekAgo.toISOString().slice(0, 10);
-  loadHistory();
+    // Default history range: last 7 days
+    const today = new Date();
+    const weekAgo = new Date(today);
+    weekAgo.setDate(today.getDate() - 7);
+    document.getElementById("history-end").value = today.toISOString().slice(0, 10);
+    document.getElementById("history-start").value = weekAgo.toISOString().slice(0, 10);
+    await loadHistory();
+  });
 }
 
 function renderVehicleDetail(data) {
@@ -318,30 +339,32 @@ function populateHistoryDoorFilter(doors) {
 }
 
 async function loadHistory() {
-  const start = document.getElementById("history-start").value;
-  const end = document.getElementById("history-end").value;
-  const door = document.getElementById("history-door-filter").value;
+  await withSpinner("history-btn", "history-spinner", async () => {
+    const start = document.getElementById("history-start").value;
+    const end = document.getElementById("history-end").value;
+    const door = document.getElementById("history-door-filter").value;
 
-  const url = new URL(`${API_BASE}/history/${currentVehicle}`, window.location.origin);
-  if (start) url.searchParams.set("start_date", start);
-  if (end) url.searchParams.set("end_date", end);
-  if (door) url.searchParams.set("door", door);
+    const url = new URL(`${API_BASE}/history/${currentVehicle}`, window.location.origin);
+    if (start) url.searchParams.set("start_date", start);
+    if (end) url.searchParams.set("end_date", end);
+    if (door) url.searchParams.set("door", door);
 
-  const res = await fetch(url);
-  const data = await res.json();
+    const res = await fetch(url);
+    const data = await res.json();
 
-  const list = document.getElementById("history-list");
-  list.innerHTML = "";
+    const list = document.getElementById("history-list");
+    list.innerHTML = "";
 
-  if (data.reports.length === 0) {
-    list.innerHTML = "<li>Aucune remontée sur cette période.</li>";
-    return;
-  }
+    if (data.reports.length === 0) {
+      list.innerHTML = "<li>Aucune remontée sur cette période.</li>";
+      return;
+    }
 
-  data.reports.forEach(r => {
-    const li = document.createElement("li");
-    li.textContent = `${formatDate(r.timestamp)} — Porte ${r.porte}`;
-    list.appendChild(li);
+    data.reports.forEach(r => {
+      const li = document.createElement("li");
+      li.textContent = `${formatDate(r.timestamp)} — Porte ${r.porte}`;
+      list.appendChild(li);
+    });
   });
 }
 
@@ -361,15 +384,17 @@ function searchVehicleFromInput() {
 let allSaeGpsVehicles = [];
 
 async function loadSaeGpsAnomalies() {
-  const res = await fetch(`${API_BASE}/vehicles-sae-gps`);
-  const data = await res.json();
-  allSaeGpsVehicles = data.vehicles;
+  await withSpinner("sae-gps-refresh-btn", "sae-gps-refresh-spinner", async () => {
+    const res = await fetch(`${API_BASE}/vehicles-sae-gps`);
+    const data = await res.json();
+    allSaeGpsVehicles = data.vehicles;
 
-  populateSaeGpsTypeFilter();
-  renderSaeGpsTables();
+    populateSaeGpsTypeFilter();
+    renderSaeGpsTables();
 
-  document.getElementById("sae-gps-last-refresh").textContent =
-    "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+    document.getElementById("sae-gps-last-refresh").textContent =
+      "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+  });
 }
 
 function populateSaeGpsTypeFilter() {
@@ -468,22 +493,24 @@ async function loadSaeGpsHistory() {
     return;
   }
 
-  const start = document.getElementById("sae-gps-history-start").value;
-  const end = document.getElementById("sae-gps-history-end").value;
+  await withSpinner("sae-gps-history-btn", "sae-gps-history-spinner", async () => {
+    const start = document.getElementById("sae-gps-history-start").value;
+    const end = document.getElementById("sae-gps-history-end").value;
 
-  const url = new URL(`${API_BASE}/history-sae-gps/${numParc}`, window.location.origin);
-  if (start) url.searchParams.set("start_date", start);
-  if (end) url.searchParams.set("end_date", end);
+    const url = new URL(`${API_BASE}/history-sae-gps/${numParc}`, window.location.origin);
+    if (start) url.searchParams.set("start_date", start);
+    if (end) url.searchParams.set("end_date", end);
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    alert("Véhicule introuvable.");
-    return;
-  }
-  const data = await res.json();
+    const res = await fetch(url);
+    if (!res.ok) {
+      alert("Véhicule introuvable.");
+      return;
+    }
+    const data = await res.json();
 
-  renderPresenceHistory("sae-history-list", data.reports, "sae_present");
-  renderPresenceHistory("gps-history-list", data.reports, "gps_present");
+    renderPresenceHistory("sae-history-list", data.reports, "sae_present");
+    renderPresenceHistory("gps-history-list", data.reports, "gps_present");
+  });
 }
 
 function renderPresenceHistory(listId, reports, presentField) {
