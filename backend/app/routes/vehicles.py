@@ -20,7 +20,8 @@ from app.database import (
 from app.config import DOOR_ANOMALY_THRESHOLD_HOURS
 from app.anomaly import (
     get_vehicle_overview, get_door_status_for_vehicle, get_last_exploitation_time,
-    get_last_exploitation_per_vehicle, get_sae_gps_status,
+    get_last_exploitation_per_vehicle, get_sae_gps_status, get_exploitation_case,
+    get_exploitation_case_per_vehicle,
 )
 from app.fleet_reference import get_rolling_stock, get_physical_door_number, is_known_vehicle
 
@@ -60,16 +61,17 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
 
     now = utc_now()
 
-    last_exploitation_map = get_last_exploitation_per_vehicle(metrics_df)
+    exploitation_case_map = get_exploitation_case_per_vehicle(metrics_df)
     door_agg_df = fetch_door_last_seen_aggregate()
     door_agg_by_vehicle = {row["num_parc"]: row for _, row in door_agg_df.iterrows()}
 
     for v in vehicles:
-        last_exp = last_exploitation_map.get(v["num_parc"])
+        exploitation_case, last_exp = exploitation_case_map.get(v["num_parc"], ("unknown", None))
         v["hours_since_last_exploitation"] = (
             round((now - last_exp).total_seconds() / 3600, 1) if last_exp is not None else None
         )
         v["last_exploitation"] = to_local_iso(last_exp)
+        v["exploitation_case"] = exploitation_case
 
         rolling_stock = get_rolling_stock(v["num_parc"])
         agg_row = door_agg_by_vehicle.get(v["num_parc"])
@@ -114,9 +116,17 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
             # door that's been silent for over 30 days is certainly stale
             # relative to any exploitation within that window.
             v["status"] = "anomalie"
+        elif exploitation_case == "stale":
+            # operation_state has been seen (e.g. depot) but never 1/2 in
+            # the window - no usable reference to compare door silence
+            # against. Every candidate door has at least some data (no
+            # has_missing_door above), so the vehicle is "fonctionnel"
+            # regardless of how old that data is - see
+            # anomaly.get_door_status_for_vehicle's skip_silence_check.
+            v["status"] = "fonctionnel"
         elif last_exp is None:
-            # No exploitation reference available in the fetched window -
-            # fall back to comparing the oldest door report to now.
+            # "unknown" case: operation_state never seen at all - genuine
+            # silence, fall back to comparing the oldest door report to now.
             hours_since_now = (now - oldest_door_ts).total_seconds() / 3600
             v["status"] = "anomalie" if hours_since_now > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
         else:
@@ -167,13 +177,17 @@ def get_vehicle_detail(num_parc: int):
 
     # Compare each door's last report to the vehicle's last genuine
     # exploitation, not to "now" - see anomaly.get_door_status_for_vehicle.
-    last_exploitation = get_last_exploitation_time(metrics_df)
+    # If operation_state has been seen (e.g. depot) but never 1/2 in the
+    # window ("stale"), there's no usable reference - skip the silence
+    # check entirely rather than comparing to "now" or a fake reference.
+    exploitation_case, last_exploitation = get_exploitation_case(metrics_df)
     reference_time = last_exploitation or utc_now()
 
     doors = get_door_status_for_vehicle(
         door_df, num_parc, reference_time,
         expected_doors=expected_doors,
         minimum_doors=rolling_stock["minimum_doors"] if rolling_stock else 0,
+        skip_silence_check=(exploitation_case == "stale"),
     )
     functional_count = sum(1 for d in doors if d["status"] == "fonctionnel")
 
@@ -199,6 +213,7 @@ def get_vehicle_detail(num_parc: int):
         "status": overall_status,
         "last_exploitation": to_local_iso(last_exploitation),
         "hours_since_last_exploitation": round(last_exploitation_hours, 1) if last_exploitation_hours is not None else None,
+        "exploitation_case": exploitation_case,
         "rolling_stock_type": rolling_stock["type"] if rolling_stock else "Type inconnu (non configuré)",
         "door_count_functional": functional_count,
         "door_count_total": len(doors),

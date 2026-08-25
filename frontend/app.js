@@ -93,7 +93,7 @@ function renderVehicleTable() {
       tr.innerHTML = `
         <td>${v.num_parc}</td>
         <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
-        <td>${v.last_exploitation ? formatDate(v.last_exploitation) + '<br><small>' + formatDuration(v.hours_since_last_exploitation) + '</small>' : 'Aucune donnée'}</td>
+        <td>${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
         <td class="${v.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
           ${v.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
         </td>
@@ -143,6 +143,15 @@ function formatDuration(hours, precise) {
   return `depuis ${days} jour${days > 1 ? "s" : ""}`;
 }
 
+// "known": real date + duration. "stale": operation_state seen (e.g. depot)
+// but never 1/2 in the window - the vehicle almost certainly last ran
+// before the window started. "unknown": operation_state never seen at all.
+function formatExploitation(lastExploitation, hoursSince, exploitationCase) {
+  if (exploitationCase === "stale") return "Depuis plus de 30 jours";
+  if (!lastExploitation) return "Aucune donnée";
+  return `${formatDate(lastExploitation)}<br><small>${formatDuration(hoursSince)}</small>`;
+}
+
 // ---------- Vue détail véhicule ----------
 
 async function showVehicleDetail(numParc) {
@@ -181,7 +190,9 @@ function renderVehicleDetail(data) {
   populateHistoryDoorFilter(data.doors);
 
   const expText = document.getElementById("last-exploitation-text");
-  if (data.last_exploitation) {
+  if (data.exploitation_case === "stale") {
+    expText.textContent = "Dernière exploitation : depuis plus de 30 jours (véhicule vu au dépôt sur la période, mais pas en service).";
+  } else if (data.last_exploitation) {
     expText.textContent =
       `Dernière exploitation : ${formatDate(data.last_exploitation)} (${formatDuration(data.hours_since_last_exploitation)})`;
   } else {
@@ -373,7 +384,7 @@ function renderFieldTable(tableId, vehicles, field) {
     tr.innerHTML = `
       <td>${v.num_parc}</td>
       <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
-      <td>${v.last_exploitation ? formatDate(v.last_exploitation) + '<br><small>' + formatDuration(v.hours_since_last_exploitation) + '</small>' : 'Aucune donnée'}</td>
+      <td>${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
       <td>${info.missing_ratio}%</td>
       <td class="${info.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
         ${info.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}

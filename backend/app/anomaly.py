@@ -35,6 +35,36 @@ def get_last_exploitation_time(metrics_df: pd.DataFrame):
     return in_service["timestamp"].max()
 
 
+def get_exploitation_case(metrics_df: pd.DataFrame):
+    """
+    Determine which of three cases applies to a vehicle's exploitation
+    reference, based on operation_state over the fetched window:
+
+    - "known": at least one row has operation_state 1 or 2 -> a real
+      last_exploitation timestamp is available, used as normal.
+    - "stale": operation_state HAS been reported (e.g. 6 = hors service
+      dépôt) but never 1 or 2 within the window - the vehicle almost
+      certainly last ran before the window started. We know for a fact the
+      SAE trame itself is being received (operation_state came from it),
+      just not a comparable "since when" reference - so silence-based
+      checks (doors, SAE, GPS) must be skipped entirely for this vehicle;
+      only "zero data at all" and the SAE/GPS missing-ratio (where still
+      meaningful) remain valid signals.
+    - "unknown": operation_state has never been reported at all in the
+      window - genuine SAE silence, not just a long depot stay. Existing
+      "compare to now" fallback behavior still applies.
+
+    Returns (case, last_exploitation) - last_exploitation is only non-None
+    for the "known" case.
+    """
+    last_exploitation = get_last_exploitation_time(metrics_df)
+    if last_exploitation is not None:
+        return "known", last_exploitation
+    if "operation_state" in metrics_df.columns and metrics_df["operation_state"].notna().any():
+        return "stale", None
+    return "unknown", None
+
+
 def get_last_exploitation_per_vehicle(metrics_df: pd.DataFrame) -> dict:
     """
     Same as get_last_exploitation_time, but for every vehicle in metrics_df
@@ -48,6 +78,31 @@ def get_last_exploitation_per_vehicle(metrics_df: pd.DataFrame) -> dict:
     if in_service.empty:
         return {}
     return in_service.groupby("num_parc")["timestamp"].max().to_dict()
+
+
+def get_exploitation_case_per_vehicle(metrics_df: pd.DataFrame) -> dict:
+    """
+    Same as get_exploitation_case, but for every vehicle in metrics_df at
+    once (used by the global fleet view). Returns
+    {num_parc: (case, last_exploitation)}.
+    """
+    if "operation_state" not in metrics_df.columns:
+        return {}
+
+    result = {}
+    has_state = metrics_df.groupby("num_parc")["operation_state"].apply(lambda s: s.notna().any())
+    last_exploitation_map = get_last_exploitation_per_vehicle(metrics_df)
+
+    for num_parc in metrics_df["num_parc"].dropna().unique():
+        last_exp = last_exploitation_map.get(num_parc)
+        if last_exp is not None:
+            result[num_parc] = ("known", last_exp)
+        elif has_state.get(num_parc, False):
+            result[num_parc] = ("stale", None)
+        else:
+            result[num_parc] = ("unknown", None)
+
+    return result
 
 
 def get_vehicle_overview(metrics_df: pd.DataFrame, now: datetime = None) -> list[dict]:
@@ -84,6 +139,7 @@ def get_door_status_for_vehicle(
     reference_time: datetime,
     expected_doors: list[int] | None = None,
     minimum_doors: int = 0,
+    skip_silence_check: bool = False,
 ) -> list[dict]:
     """
     Build the door-level detail for one vehicle (CDC 3.2 / 4.2).
@@ -101,6 +157,15 @@ def get_door_status_for_vehicle(
     NOT simply "now". Comparing doors only to "now" is unreliable: a
     vehicle idle at the depot for repairs can go quiet for days without
     that being a real problem.
+
+    skip_silence_check: set when get_exploitation_case() returned "stale"
+    (operation_state was reported, e.g. depot, but never 1/2 in the window -
+    so there's no usable reference_time). In that case ANY door with at
+    least one report in the window is "fonctionnel" regardless of how old -
+    only a door with ZERO data at all stays "anomalie". A vehicle parked for
+    a long time shouldn't have its doors flagged just because it hasn't
+    driven; once a maintainer triggers a genuinely dead door, it will show
+    up immediately without needing the vehicle back in service first.
 
     Passenger volume values (PX_IN / PX_OUT) are used only to detect the
     last non-null timestamp per door - they are never included in the output.
@@ -148,6 +213,9 @@ def get_door_status_for_vehicle(
         if last_ts is None:
             status = "anomalie"
             hours_since_now = None
+        elif skip_silence_check:
+            status = "fonctionnel"
+            hours_since_now = (now - last_ts).total_seconds() / 3600
         else:
             # Positive = door's last report is BEFORE reference_time (stale).
             # Negative or zero = door reported at/after reference_time, i.e.
@@ -169,7 +237,7 @@ def get_door_status_for_vehicle(
     return results
 
 
-def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float):
+def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float, force_fonctionnel: bool = False):
     """
     Shared logic for get_sae_gps_status: given a vehicle's metrics rows and a
     boolean mask of which rows have the field present, compute:
@@ -184,6 +252,13 @@ def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Ser
           AFTER reference_time is never an anomaly, no matter how long ago,
         - OR the missing ratio over the window exceeds `ratio_threshold`
           (degraded mode).
+
+    force_fonctionnel: set when get_exploitation_case() returned "stale" -
+    the vehicle hasn't been in genuine service within the window (e.g. long
+    depot stay), so neither the silence check nor the missing-ratio check
+    is meaningful (not enough - or not representative - in-service data to
+    judge). Always "fonctionnel" in that case; last_seen/missing_ratio are
+    still computed and returned for information.
     """
     total_rows = len(group)
     missing_ratio = 1 - (present_mask.sum() / total_rows) if total_rows else 1.0
@@ -197,9 +272,12 @@ def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Ser
         hours_behind_reference = None
         hours_since_now = None
 
-    is_silent = last_present is None or (hours_behind_reference is not None and hours_behind_reference > silence_threshold)
-    is_degraded = missing_ratio > ratio_threshold
-    status = "anomalie" if (is_silent or is_degraded) else "fonctionnel"
+    if force_fonctionnel:
+        status = "fonctionnel"
+    else:
+        is_silent = last_present is None or (hours_behind_reference is not None and hours_behind_reference > silence_threshold)
+        is_degraded = missing_ratio > ratio_threshold
+        status = "anomalie" if (is_silent or is_degraded) else "fonctionnel"
 
     return {
         "last_seen": to_local_iso(last_present),
@@ -231,17 +309,22 @@ def get_sae_gps_status(metrics_df: pd.DataFrame, now: datetime = None) -> list[d
         last_seen = group["timestamp"].max()
         hours_since_last_seen = (now - last_seen).total_seconds() / 3600
 
-        last_exploitation = get_last_exploitation_time(group)
+        exploitation_case, last_exploitation = get_exploitation_case(group)
         reference_time = last_exploitation or now
         hours_since_exploitation = (
             (now - last_exploitation).total_seconds() / 3600 if last_exploitation is not None else None
         )
 
+        # "stale": operation_state seen (e.g. depot) but never 1/2 in the
+        # window - not enough/representative in-service data to judge either
+        # field, so both are forced "fonctionnel" (see _field_status).
+        force_fonctionnel = exploitation_case == "stale"
+
         sae_present = group["num_parc_sae"].notna()
         gps_present = group["latitude"].notna() & group["longitude"].notna()
 
-        sae = _field_status(group, now, reference_time, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD)
-        gps = _field_status(group, now, reference_time, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD)
+        sae = _field_status(group, now, reference_time, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD, force_fonctionnel=force_fonctionnel)
+        gps = _field_status(group, now, reference_time, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD, force_fonctionnel=force_fonctionnel)
 
         results.append({
             "num_parc": num_parc,
@@ -249,6 +332,7 @@ def get_sae_gps_status(metrics_df: pd.DataFrame, now: datetime = None) -> list[d
             "hours_since_last_seen": round(hours_since_last_seen, 1),
             "last_exploitation": to_local_iso(last_exploitation),
             "hours_since_last_exploitation": round(hours_since_exploitation, 1) if hours_since_exploitation is not None else None,
+            "exploitation_case": exploitation_case,
             "sae": sae,
             "gps": gps,
         })
