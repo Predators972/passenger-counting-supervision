@@ -24,8 +24,8 @@
           Filtrer par état :
           <select id="status-filter">
             <option value="">Tous</option>
+            <option value="anomalie" selected>Anomalie</option>
             <option value="fonctionnel">Fonctionnel</option>
-            <option value="anomalie">Anomalie</option>
           </select>
         </label>
         <label>
@@ -47,8 +47,9 @@
           <tr>
             <th id="col-vehicle" class="sortable">Véhicule <span class="sort-arrow"></span></th>
             <th id="col-last-seen" class="sortable">Dernière remontée <span class="sort-arrow"></span></th>
-            <th>Dernière exploitation</th>
-            <th>État</th>
+            <th id="col-last-exploitation" class="sortable">Dernière exploitation <span class="sort-arrow"></span></th>
+            <th id="col-doors" class="sortable">Portes en panne <span class="sort-arrow"></span></th>
+            <th id="col-status" class="sortable">État <span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -142,11 +143,11 @@
         <table id="sae-table">
           <thead>
             <tr>
-              <th>Véhicule</th>
-              <th>Dernière remontée</th>
-              <th>Dernière exploitation</th>
-              <th>Taux d'absence</th>
-              <th>État</th>
+              <th id="sae-col-vehicle" class="sortable">Véhicule <span class="sort-arrow"></span></th>
+              <th id="sae-col-last-seen" class="sortable">Dernière remontée <span class="sort-arrow"></span></th>
+              <th id="sae-col-last-exploitation" class="sortable">Dernière exploitation <span class="sort-arrow"></span></th>
+              <th id="sae-col-ratio" class="sortable">Taux d'absence <span class="sort-arrow"></span></th>
+              <th id="sae-col-status" class="sortable">État <span class="sort-arrow"></span></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -158,11 +159,11 @@
         <table id="gps-table">
           <thead>
             <tr>
-              <th>Véhicule</th>
-              <th>Dernière remontée</th>
-              <th>Dernière exploitation</th>
-              <th>Taux d'absence</th>
-              <th>État</th>
+              <th id="gps-col-vehicle" class="sortable">Véhicule <span class="sort-arrow"></span></th>
+              <th id="gps-col-last-seen" class="sortable">Dernière remontée <span class="sort-arrow"></span></th>
+              <th id="gps-col-last-exploitation" class="sortable">Dernière exploitation <span class="sort-arrow"></span></th>
+              <th id="gps-col-ratio" class="sortable">Taux d'absence <span class="sort-arrow"></span></th>
+              <th id="gps-col-status" class="sortable">État <span class="sort-arrow"></span></th>
             </tr>
           </thead>
           <tbody></tbody>

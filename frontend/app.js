@@ -28,11 +28,68 @@ let liveCheckStopAt = null;
 // extra API/DB call - only the "Rafraîchir" button re-fetches from BDD3.
 let allVehicles = [];
 
-// Current column sort applied to the global view table.
-// column: "num_parc" | "last_seen" | null (no sort = order returned by API)
-let sortState = { column: null, direction: "asc" };
+// ---------- Generic sortable-table helper (used by all 3 tables) ----------
+
+function toggleSort(state, column, rerenderFn, defaultDirection = "asc") {
+  if (state.column === column) {
+    state.direction = state.direction === "asc" ? "desc" : "asc";
+  } else {
+    state.column = column;
+    state.direction = defaultDirection;
+  }
+  rerenderFn();
+}
+
+function applySort(rows, state, keyGetters) {
+  if (!state.column) return rows;
+  const getKey = keyGetters[state.column];
+  const dir = state.direction === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const valA = getKey(a);
+    const valB = getKey(b);
+    if (valA < valB) return -1 * dir;
+    if (valA > valB) return 1 * dir;
+    return 0;
+  });
+}
+
+function updateSortArrows(state, headerIdMap) {
+  Object.values(headerIdMap).forEach(id => {
+    const el = document.querySelector(`#${id} .sort-arrow`);
+    if (el) el.textContent = "";
+  });
+  if (!state.column) return;
+  const arrow = state.direction === "asc" ? "▲" : "▼";
+  const el = document.querySelector(`#${headerIdMap[state.column]} .sort-arrow`);
+  if (el) el.textContent = arrow;
+}
 
 // ---------- Vue globale ----------
+
+// Data already comes sorted by num_parc ascending from the API - initialize
+// the sort state to match, so the "Véhicule" column shows its arrow by
+// default (a visual hint that columns are clickable to sort).
+const globalSortState = { column: "num_parc", direction: "asc" };
+const globalHeaderIds = {
+  num_parc: "col-vehicle",
+  last_seen: "col-last-seen",
+  last_exploitation: "col-last-exploitation",
+  doors: "col-doors",
+  status: "col-status",
+};
+const globalKeyGetters = {
+  num_parc: v => v.num_parc,
+  last_seen: v => v.last_seen || "",
+  // Distinct sentinel keys so "stale" and "unknown" don't collide (equal
+  // keys left them in original array order, looking like a broken sort).
+  // Sentinels sort before any real ISO date string either way.
+  last_exploitation: v => {
+    if (v.exploitation_case === "known") return v.last_exploitation;
+    return v.exploitation_case === "stale" ? "1" : "0";
+  },
+  doors: v => v.door_count_total - v.door_count_functional,
+  status: v => v.status,
+};
 
 async function loadVehicles() {
   const res = await fetch(API_BASE + "/vehicles");
@@ -74,26 +131,17 @@ function renderVehicleTable() {
     .filter(v => !typeFilter || v.rolling_stock_type === typeFilter)
     .filter(v => !search || String(v.num_parc).includes(search));
 
-  if (sortState.column) {
-    const dir = sortState.direction === "asc" ? 1 : -1;
-    rows = [...rows].sort((a, b) => {
-      let valA = a[sortState.column];
-      let valB = b[sortState.column];
-      // "last_seen" is an ISO date string, "num_parc" is numeric - both compare fine with < / >
-      if (valA < valB) return -1 * dir;
-      if (valA > valB) return 1 * dir;
-      return 0;
-    });
-  }
-
-  updateSortArrows();
+  rows = applySort(rows, globalSortState, globalKeyGetters);
+  updateSortArrows(globalSortState, globalHeaderIds);
 
   rows.forEach(v => {
+      const doorsDown = v.door_count_total - v.door_count_functional;
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${v.num_parc}</td>
         <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
         <td>${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
+        <td class="${doorsDown > 0 ? 'status-anomaly' : 'status-ok'}">${doorsDown} / ${v.door_count_total}</td>
         <td class="${v.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
           ${v.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
         </td>
@@ -105,24 +153,6 @@ function renderVehicleTable() {
       });
       tbody.appendChild(tr);
     });
-}
-
-function updateSortArrows() {
-  document.querySelectorAll("#vehicle-table th.sortable .sort-arrow").forEach(el => el.textContent = "");
-  if (!sortState.column) return;
-  const headerId = sortState.column === "num_parc" ? "col-vehicle" : "col-last-seen";
-  const arrow = sortState.direction === "asc" ? "▲" : "▼";
-  document.querySelector(`#${headerId} .sort-arrow`).textContent = arrow;
-}
-
-function toggleSort(column) {
-  if (sortState.column === column) {
-    sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
-  } else {
-    sortState.column = column;
-    sortState.direction = "asc";
-  }
-  renderVehicleTable();
 }
 
 function formatDate(isoString) {
@@ -358,6 +388,31 @@ function populateSaeGpsTypeFilter() {
   if (types.includes(previousValue)) select.value = previousValue;
 }
 
+const saeSortState = { column: "num_parc", direction: "asc" };
+const gpsSortState = { column: "num_parc", direction: "asc" };
+
+const saeHeaderIds = {
+  num_parc: "sae-col-vehicle", last_seen: "sae-col-last-seen",
+  last_exploitation: "sae-col-last-exploitation", ratio: "sae-col-ratio", status: "sae-col-status",
+};
+const gpsHeaderIds = {
+  num_parc: "gps-col-vehicle", last_seen: "gps-col-last-seen",
+  last_exploitation: "gps-col-last-exploitation", ratio: "gps-col-ratio", status: "gps-col-status",
+};
+
+function fieldKeyGetters(field) {
+  return {
+    num_parc: v => v.num_parc,
+    last_seen: v => v.last_seen || "",
+    last_exploitation: v => {
+      if (v.exploitation_case === "known") return v.last_exploitation;
+      return v.exploitation_case === "stale" ? "1" : "0";
+    },
+    ratio: v => v[field].missing_ratio,
+    status: v => v[field].status,
+  };
+}
+
 function getFilteredSaeGpsVehicles(field) {
   const statusFilter = document.getElementById("sae-gps-status-filter").value;
   const typeFilter = document.getElementById("sae-gps-type-filter").value;
@@ -370,8 +425,14 @@ function getFilteredSaeGpsVehicles(field) {
 }
 
 function renderSaeGpsTables() {
-  renderFieldTable("sae-table", getFilteredSaeGpsVehicles("sae"), "sae");
-  renderFieldTable("gps-table", getFilteredSaeGpsVehicles("gps"), "gps");
+  const saeRows = applySort(getFilteredSaeGpsVehicles("sae"), saeSortState, fieldKeyGetters("sae"));
+  const gpsRows = applySort(getFilteredSaeGpsVehicles("gps"), gpsSortState, fieldKeyGetters("gps"));
+
+  updateSortArrows(saeSortState, saeHeaderIds);
+  updateSortArrows(gpsSortState, gpsHeaderIds);
+
+  renderFieldTable("sae-table", saeRows, "sae");
+  renderFieldTable("gps-table", gpsRows, "gps");
 }
 
 function renderFieldTable(tableId, vehicles, field) {
@@ -466,8 +527,11 @@ document.getElementById("refresh-btn").addEventListener("click", loadVehicles);
 document.getElementById("status-filter").addEventListener("change", renderVehicleTable);
 document.getElementById("type-filter").addEventListener("change", renderVehicleTable);
 document.getElementById("vehicle-search").addEventListener("input", renderVehicleTable);
-document.getElementById("col-vehicle").addEventListener("click", () => toggleSort("num_parc"));
-document.getElementById("col-last-seen").addEventListener("click", () => toggleSort("last_seen"));
+document.getElementById("col-vehicle").addEventListener("click", () => toggleSort(globalSortState, "num_parc", renderVehicleTable, "asc"));
+document.getElementById("col-last-seen").addEventListener("click", () => toggleSort(globalSortState, "last_seen", renderVehicleTable, "desc"));
+document.getElementById("col-last-exploitation").addEventListener("click", () => toggleSort(globalSortState, "last_exploitation", renderVehicleTable, "desc"));
+document.getElementById("col-doors").addEventListener("click", () => toggleSort(globalSortState, "doors", renderVehicleTable, "desc"));
+document.getElementById("col-status").addEventListener("click", () => toggleSort(globalSortState, "status", renderVehicleTable, "asc"));
 document.getElementById("live-check-btn").addEventListener("click", startLiveCheck);
 document.getElementById("history-btn").addEventListener("click", loadHistory);
 document.getElementById("history-door-filter").addEventListener("change", loadHistory);
@@ -475,6 +539,18 @@ document.getElementById("sae-gps-refresh-btn").addEventListener("click", loadSae
 document.getElementById("sae-gps-status-filter").addEventListener("change", renderSaeGpsTables);
 document.getElementById("sae-gps-type-filter").addEventListener("change", renderSaeGpsTables);
 document.getElementById("sae-gps-search").addEventListener("input", renderSaeGpsTables);
+
+document.getElementById("sae-col-vehicle").addEventListener("click", () => toggleSort(saeSortState, "num_parc", renderSaeGpsTables, "asc"));
+document.getElementById("sae-col-last-seen").addEventListener("click", () => toggleSort(saeSortState, "last_seen", renderSaeGpsTables, "desc"));
+document.getElementById("sae-col-last-exploitation").addEventListener("click", () => toggleSort(saeSortState, "last_exploitation", renderSaeGpsTables, "desc"));
+document.getElementById("sae-col-ratio").addEventListener("click", () => toggleSort(saeSortState, "ratio", renderSaeGpsTables, "desc"));
+document.getElementById("sae-col-status").addEventListener("click", () => toggleSort(saeSortState, "status", renderSaeGpsTables, "asc"));
+
+document.getElementById("gps-col-vehicle").addEventListener("click", () => toggleSort(gpsSortState, "num_parc", renderSaeGpsTables, "asc"));
+document.getElementById("gps-col-last-seen").addEventListener("click", () => toggleSort(gpsSortState, "last_seen", renderSaeGpsTables, "desc"));
+document.getElementById("gps-col-last-exploitation").addEventListener("click", () => toggleSort(gpsSortState, "last_exploitation", renderSaeGpsTables, "desc"));
+document.getElementById("gps-col-ratio").addEventListener("click", () => toggleSort(gpsSortState, "ratio", renderSaeGpsTables, "desc"));
+document.getElementById("gps-col-status").addEventListener("click", () => toggleSort(gpsSortState, "status", renderSaeGpsTables, "asc"));
 document.getElementById("sae-gps-history-btn").addEventListener("click", loadSaeGpsHistory);
 
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));

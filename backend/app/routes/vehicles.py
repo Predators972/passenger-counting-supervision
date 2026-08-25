@@ -91,15 +91,35 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
         else:
             candidate_doors = range(1, minimum_doors + 1)
 
-        door_timestamps = []
-        has_missing_door = False
+        # Per-door status (same rules as the detail view): a door with no
+        # data is always "anomalie". Otherwise, "stale" exploitation skips
+        # the time comparison entirely (any data = fonctionnel); "unknown"
+        # falls back to comparing to "now"; "known" compares to last_exp.
+        door_last_seen = {}
         for n in candidate_doors:
             ts = agg_row.get(f"p{n}_last") if agg_row is not None else None
-            if pd.isna(ts):
-                has_missing_door = True
-            else:
-                door_timestamps.append(pd.Timestamp(ts))
+            door_last_seen[n] = pd.Timestamp(ts) if pd.notna(ts) else None
 
+        door_count_functional = 0
+        for n, ts in door_last_seen.items():
+            if ts is None:
+                continue
+            if exploitation_case == "stale":
+                door_count_functional += 1
+            elif exploitation_case == "unknown" or last_exp is None:
+                hours_since_now = (now - ts).total_seconds() / 3600
+                if hours_since_now <= DOOR_ANOMALY_THRESHOLD_HOURS:
+                    door_count_functional += 1
+            else:
+                hours_behind_exploitation = (last_exp - ts).total_seconds() / 3600
+                if hours_behind_exploitation <= DOOR_ANOMALY_THRESHOLD_HOURS:
+                    door_count_functional += 1
+
+        door_count_total = len(door_last_seen)
+        v["door_count_functional"] = door_count_functional
+        v["door_count_total"] = door_count_total
+
+        door_timestamps = [ts for ts in door_last_seen.values() if ts is not None]
         oldest_door_ts = min(door_timestamps) if door_timestamps else None
 
         v["last_seen"] = to_local_iso(oldest_door_ts)
@@ -107,31 +127,9 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
             round((now - oldest_door_ts).total_seconds() / 3600, 1) if oldest_door_ts is not None else None
         )
 
-        if oldest_door_ts is None:
-            # No door data at all within the 30-day window: can't have been
-            # in genuine service recently either way - anomalie.
-            v["status"] = "anomalie"
-        elif has_missing_door:
-            # At least one expected door has zero data in the window - a
-            # door that's been silent for over 30 days is certainly stale
-            # relative to any exploitation within that window.
-            v["status"] = "anomalie"
-        elif exploitation_case == "stale":
-            # operation_state has been seen (e.g. depot) but never 1/2 in
-            # the window - no usable reference to compare door silence
-            # against. Every candidate door has at least some data (no
-            # has_missing_door above), so the vehicle is "fonctionnel"
-            # regardless of how old that data is - see
-            # anomaly.get_door_status_for_vehicle's skip_silence_check.
-            v["status"] = "fonctionnel"
-        elif last_exp is None:
-            # "unknown" case: operation_state never seen at all - genuine
-            # silence, fall back to comparing the oldest door report to now.
-            hours_since_now = (now - oldest_door_ts).total_seconds() / 3600
-            v["status"] = "anomalie" if hours_since_now > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
-        else:
-            hours_behind_exploitation = (last_exp - oldest_door_ts).total_seconds() / 3600
-            v["status"] = "anomalie" if hours_behind_exploitation > DOOR_ANOMALY_THRESHOLD_HOURS else "fonctionnel"
+        # Any door in anomaly (including "no data at all") makes the whole
+        # vehicle "anomalie" - same rule as the detail view's overall_status.
+        v["status"] = "anomalie" if door_count_functional < door_count_total else "fonctionnel"
 
     if status:
         vehicles = [v for v in vehicles if v["status"] == status]
