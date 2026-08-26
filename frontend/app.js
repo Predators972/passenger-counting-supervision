@@ -258,12 +258,12 @@ function renderVehicleDetail(data) {
 
   const expText = document.getElementById("last-exploitation-text");
   if (data.exploitation_case === "stale") {
-    expText.textContent = "Dernière exploitation : depuis plus de 30 jours (véhicule vu au dépôt sur la période, mais pas en service).";
+    expText.textContent = "Dernier service commercial : depuis plus de 30 jours (véhicule vu au dépôt sur la période, mais pas en service).";
   } else if (data.last_exploitation) {
     expText.textContent =
-      `Dernière exploitation : ${formatDate(data.last_exploitation)} (${formatDuration(data.hours_since_last_exploitation)})`;
+      `Dernier service commercial : ${formatDate(data.last_exploitation)} (${formatDuration(data.hours_since_last_exploitation)})`;
   } else {
-    expText.textContent = "Dernière exploitation : aucune donnée d'exploitation trouvée sur la période chargée.";
+    expText.textContent = "Dernier service commercial : aucune donnée d'exploitation trouvée sur la période chargée.";
   }
 
   const grid = document.getElementById("door-grid");
