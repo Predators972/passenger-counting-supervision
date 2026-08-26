@@ -1,0 +1,41 @@
+# Minimal Doxygen configuration for the "Outil de supervision - comptage
+# voyageurs" project.
+#
+# Usage: from the project root, run:
+#     doxygen Doxyfile
+# Then open docs/html/index.html in a browser.
+
+PROJECT_NAME           = "Outil de supervision - comptage voyageurs"
+OUTPUT_DIRECTORY       = docs
+
+# Source files to document: backend Python package + front-end JS.
+INPUT                  = backend/app frontend/app.js
+RECURSIVE              = YES
+FILE_PATTERNS          = *.py *.js
+
+# Doxygen does not automatically know which parser to use for the .js
+# extension - without this mapping, .js files are silently skipped even
+# though they match FILE_PATTERNS above.
+EXTENSION_MAPPING      = js=JavaScript
+
+# We write explicit @brief/@param/@return tags in every docstring/comment
+# block, so no need for Doxygen to guess the brief description from the
+# first line.
+JAVADOC_AUTOBRIEF      = NO
+
+# Document every function/module, even ones without a docstring, so
+# missing documentation shows up clearly in the generated output instead
+# of being silently skipped.
+EXTRACT_ALL             = YES
+EXTRACT_PRIVATE         = YES
+EXTRACT_STATIC          = YES
+
+GENERATE_HTML           = YES
+GENERATE_LATEX          = NO
+
+# Requires Graphviz (the "dot" tool) to be installed - set to NO if you
+# skipped that step and want to avoid warnings in the console output.
+HAVE_DOT                = YES
+
+QUIET                   = NO
+WARN_IF_UNDOCUMENTED    = YES

@@ -1,12 +1,6 @@
-"""
-Main entry point for the supervision tool backend.
-
-Run locally with:
-    uvicorn app.main:app --reload
-
-The API is served under /api, and the front-end static files are served
-directly from this same app so you only need to run one process locally.
-"""
+## @file main.py
+#  @brief Application entry point: creates the FastAPI app, registers the API
+#  routers and mounts the front-end static files under a single process.
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +13,7 @@ app = FastAPI(title="Outil de supervision - comptage voyageurs")
 app.include_router(vehicles.router)
 app.include_router(stats.router)
 
-# Serve the front-end (plain HTML/CSS/JS, no build step required)
+## Directory containing the front-end static files (HTML/CSS/JS).
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

@@ -1,29 +1,23 @@
-"""
-Rolling stock reference data.
-
-Maps a vehicle number (num_parc) to its rolling stock type (tramway model,
-bus type...) and its expected number of doors, based on number ranges
-provided by the maintenance team.
-
-Edit data/rolling_stock_ranges.json to add or correct ranges - no code
-change needed. If a vehicle isn't found in any range, the door count is
-guessed dynamically from the data instead (see anomaly.py) - less reliable,
-since a door that has been silent for the whole lookback window then looks
-identical to a door that simply doesn't exist on that vehicle.
-"""
+## @file fleet_reference.py
+#  @brief Rolling stock reference: maps a vehicle number to its rolling
+#  stock type, expected door count and physical door numbering scheme,
+#  based on ranges loaded from data/rolling_stock_ranges.json.
 
 import json
 from pathlib import Path
 
+## Path to the JSON file listing vehicle number ranges and their rolling
+#  stock type / door configuration.
 REFERENCE_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "rolling_stock_ranges.json"
 
+## In-memory cache of the parsed reference file, populated on first use.
 _ranges_cache = None
 
-# Mapping from internal door index (P1_IN...P16_IN as they exist in door_counts)
-# to the REAL physical door number, per BDD3 documentation (08/12/2025).
-# P1-P6 are the same "porte 11-16" numbering for all tramways. P7-P16 differ
-# between the CITADIS 302 (shorter, 12 doors total) and the CITADIS 401/402 /
-# CAF URBOS (longer, 16 doors total). Buses just use their door index directly.
+## Mapping from internal door index (1-16, matching the PX_IN/PX_OUT
+#  columns in door_counts) to the physical door number, per rolling stock
+#  family. Buses use their door index directly; tramway families differ in
+#  how many doors they have and how the higher door indices map to
+#  physical door numbers.
 DOOR_SCHEMES = {
     "bus": {1: 1, 2: 2, 3: 3},
     "tram_302": {
@@ -38,7 +32,15 @@ DOOR_SCHEMES = {
 
 
 def get_physical_door_number(scheme_name, door_index):
-    """Translate an internal door index (1-16) into the real physical door number."""
+    """!
+    @brief Translate an internal door index into its physical door number.
+
+    @param scheme_name Key into DOOR_SCHEMES, or None/unknown to disable
+    translation.
+    @param door_index Internal door index (1-16).
+    @return Physical door number, or door_index unchanged if scheme_name is
+    not found or has no mapping for that index.
+    """
     scheme = DOOR_SCHEMES.get(scheme_name)
     if not scheme:
         return door_index
@@ -46,6 +48,12 @@ def get_physical_door_number(scheme_name, door_index):
 
 
 def _load_ranges():
+    """!
+    @brief Load and parse the rolling stock reference JSON file.
+
+    @return List of range entries (dicts), or an empty list if the file
+    does not exist.
+    """
     if not REFERENCE_FILE.exists():
         return []
     with open(REFERENCE_FILE, encoding="utf-8") as f:
@@ -53,26 +61,15 @@ def _load_ranges():
 
 
 def get_rolling_stock(num_parc):
-    """
-    Return {"type": str, "door_count": int | None, "door_scheme": str | None,
-    "minimum_doors": int} for the given vehicle number, or None if no
-    matching range is configured OR if num_parc is invalid/unreadable
-    (e.g. NaN from a row with missing num_parc_wb/num_parc_sae in BDD3) -
-    a bad value here must not crash the whole fleet listing, just exclude
-    that one vehicle.
+    """!
+    @brief Look up the rolling stock configuration for a given vehicle
+    number.
 
-    door_count can be None (e.g. buses, whose exact door count varies by
-    model - some have 2 doors, some 3, future longer ones may have 4) - in
-    that case callers fall back to dynamic door-count detection instead of
-    a fixed expected count (see anomaly.get_door_status_for_vehicle).
-
-    minimum_doors is a floor used only when door_count is None: doors up to
-    this number are ALWAYS shown, even with zero data, since we know for a
-    fact every vehicle of this type has at least that many doors (e.g. no
-    bus has ever had just 1 door). This avoids silently hiding a genuinely
-    dead door just because it never reported anything in the lookback
-    window - only doors ABOVE this floor remain purely dynamic (shown only
-    if they've reported at least once), since we can't be sure they exist.
+    @param num_parc Vehicle number (any type convertible to int).
+    @return Dict with keys type (str), door_count (int or None),
+    door_scheme (str or None), minimum_doors (int, defaults to 0); or None
+    if num_parc is not convertible to int or falls outside every
+    configured range.
     """
     global _ranges_cache
     if _ranges_cache is None:
@@ -95,10 +92,11 @@ def get_rolling_stock(num_parc):
 
 
 def is_known_vehicle(num_parc) -> bool:
-    """
-    True if num_parc falls within one of the configured rolling stock
-    ranges. Vehicle numbers outside all known ranges are treated as bad
-    data (a BDD3 data quality issue) and excluded from the tool entirely,
-    per business decision.
+    """!
+    @brief Check whether a vehicle number falls within a configured rolling
+    stock range.
+
+    @param num_parc Vehicle number to check.
+    @return True if a matching range is found, False otherwise.
     """
     return get_rolling_stock(num_parc) is not None

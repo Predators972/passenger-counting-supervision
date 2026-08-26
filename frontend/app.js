@@ -1,14 +1,27 @@
-// Front-end logic for the supervision tool.
-// Plain JavaScript, no build step, no framework - calls the FastAPI backend under /api.
+/**
+ * @file app.js
+ * @brief Front-end logic for the supervision tool: fetches data from the
+ * FastAPI backend under /api and renders the four tabs (global fleet view,
+ * vehicle detail, SAE/GPS anomalies, statistics). Plain JavaScript, no
+ * build step, no framework.
+ */
 
 const API_BASE = "/api";
 
-// Shows a spinner + an elapsed-time counter next to a button, and disables
-// it while an async action runs - so the user gets visual feedback and
-// can't spam-click while a request is in flight. The counter keeps running
-// live during the load, then STOPS (but stays visible, showing the final
-// duration) once done - reset to 0 on the next click. Nothing is persisted
-// anywhere (no browser storage) - purely in-memory for the current action.
+/**
+ * @brief Show a spinner and an elapsed-time counter next to a button, and
+ * disable it while an async action runs.
+ *
+ * The counter increments live during the action, then stops (without
+ * disappearing) once the action completes, showing the final duration
+ * until the next call. Nothing is persisted outside the running page.
+ *
+ * @param buttonId ID of the button element to disable during the action.
+ * @param spinnerId ID of the spinner element to show/hide.
+ * @param timerId ID of the element used to display the elapsed time.
+ * @param asyncFn Async function to run while the button is disabled.
+ * @return Promise that resolves once asyncFn has completed.
+ */
 async function withSpinner(buttonId, spinnerId, timerId, asyncFn) {
   const button = document.getElementById(buttonId);
   const spinner = document.getElementById(spinnerId);
@@ -34,9 +47,11 @@ async function withSpinner(buttonId, spinnerId, timerId, asyncFn) {
 }
 
 
-// Quick reference to the relevant case in Procedure_maintenance_WB, shown to the
-// maintainer once a door anomaly is identified, so they don't have to search for it.
-// Which case is shown depends on how many doors are affected - see renderVehicleDetail.
+/**
+ * @brief Maintenance procedure reminder texts shown on the vehicle detail
+ * tab. Which one is shown depends on how many doors are in anomaly, see
+ * renderVehicleDetail.
+ */
 const PROCEDURE_HINTS = {
   allDoors: `
     <strong>Toutes les portes sont en anomalie</strong> - le problème vient probablement
@@ -54,13 +69,23 @@ let currentVehicle = null;
 let liveCheckTimer = null;
 let liveCheckStopAt = null;
 
-// Vehicles fetched from the API are kept in memory here. Status and search
-// filters are then applied client-side (see renderVehicleTable), with no
-// extra API/DB call - only the "Rafraîchir" button re-fetches from BDD3.
+/**
+ * @brief Fleet data fetched from the API, kept in memory. Status/type/
+ * search filters and sorting are applied client-side against this array;
+ * only the "Rafraîchir" button re-fetches from the backend.
+ */
 let allVehicles = [];
 
 // ---------- Generic sortable-table helper (used by all 3 tables) ----------
 
+/**
+ * @brief Toggle the sort column/direction of a table and re-render it.
+ *
+ * @param state Mutable sort state object with column/direction fields.
+ * @param column Column key to sort by.
+ * @param rerenderFn Function called after updating the sort state.
+ * @param defaultDirection Direction applied when switching to a new column.
+ */
 function toggleSort(state, column, rerenderFn, defaultDirection = "asc") {
   if (state.column === column) {
     state.direction = state.direction === "asc" ? "desc" : "asc";
@@ -71,6 +96,17 @@ function toggleSort(state, column, rerenderFn, defaultDirection = "asc") {
   rerenderFn();
 }
 
+/**
+ * @brief Sort an array of rows according to a sort state and a set of key
+ * extractor functions.
+ *
+ * @param rows Array of row objects to sort.
+ * @param state Sort state with column/direction fields.
+ * @param keyGetters Object mapping column key to a function extracting the
+ * sortable value from a row.
+ * @return New sorted array (rows is not mutated), or rows unchanged if no
+ * column is selected.
+ */
 function applySort(rows, state, keyGetters) {
   if (!state.column) return rows;
   const getKey = keyGetters[state.column];
@@ -84,6 +120,13 @@ function applySort(rows, state, keyGetters) {
   });
 }
 
+/**
+ * @brief Update the sort arrow displayed in each sortable column header of
+ * a table.
+ *
+ * @param state Sort state with column/direction fields.
+ * @param headerIdMap Object mapping column key to its header element ID.
+ */
 function updateSortArrows(state, headerIdMap) {
   Object.values(headerIdMap).forEach(id => {
     const el = document.querySelector(`#${id} .sort-arrow`);
@@ -95,11 +138,12 @@ function updateSortArrows(state, headerIdMap) {
   if (el) el.textContent = arrow;
 }
 
-// ---------- Vue globale ----------
+// ---------- Global fleet view ----------
 
-// Data already comes sorted by num_parc ascending from the API - initialize
-// the sort state to match, so the "Véhicule" column shows its arrow by
-// default (a visual hint that columns are clickable to sort).
+/**
+ * @brief Sort state for the global fleet table, initialized to match the
+ * order already returned by the API (ascending by vehicle number).
+ */
 const globalSortState = { column: "num_parc", direction: "asc" };
 const globalHeaderIds = {
   num_parc: "col-vehicle",
@@ -108,12 +152,14 @@ const globalHeaderIds = {
   doors: "col-doors",
   status: "col-status",
 };
+/**
+ * @brief Sort key extractors for the global fleet table. "stale" and
+ * "unknown" exploitation cases use distinct sentinel strings so they sort
+ * as separate groups rather than colliding on an equal key.
+ */
 const globalKeyGetters = {
   num_parc: v => v.num_parc,
   last_seen: v => v.last_seen || "",
-  // Distinct sentinel keys so "stale" and "unknown" don't collide (equal
-  // keys left them in original array order, looking like a broken sort).
-  // Sentinels sort before any real ISO date string either way.
   last_exploitation: v => {
     if (v.exploitation_case === "known") return v.last_exploitation;
     return v.exploitation_case === "stale" ? "1" : "0";
@@ -122,6 +168,11 @@ const globalKeyGetters = {
   status: v => v.status,
 };
 
+/**
+ * @brief Fetch the fleet overview from the API and refresh the global
+ * table, type filter and statistics tab.
+ * @return Promise that resolves once the table has been rendered.
+ */
 async function loadVehicles() {
   await withSpinner("refresh-btn", "refresh-spinner", "refresh-timer", async () => {
     const res = await fetch(API_BASE + "/vehicles");
@@ -137,6 +188,10 @@ async function loadVehicles() {
   });
 }
 
+/**
+ * @brief Rebuild the "Type de véhicule" filter options from the currently
+ * loaded fleet data, preserving the previous selection when still valid.
+ */
 function populateTypeFilter() {
   const select = document.getElementById("type-filter");
   const previousValue = select.value;
@@ -150,10 +205,13 @@ function populateTypeFilter() {
     select.appendChild(option);
   });
 
-  // Keep the previous selection if it's still a valid option after refresh
   if (types.includes(previousValue)) select.value = previousValue;
 }
 
+/**
+ * @brief Render the global fleet table body from allVehicles, applying the
+ * current status/type/search filters and sort state.
+ */
 function renderVehicleTable() {
   const statusFilter = document.getElementById("status-filter").value;
   const typeFilter = document.getElementById("type-filter").value;
@@ -190,11 +248,24 @@ function renderVehicleTable() {
     });
 }
 
+/**
+ * @brief Format an ISO timestamp string for display in local French format.
+ * @param isoString ISO 8601 timestamp string, or null/undefined.
+ * @return Localized date/time string, or "Aucune donnée" if isoString is
+ * falsy.
+ */
 function formatDate(isoString) {
   if (!isoString) return "Aucune donnée";
   return new Date(isoString).toLocaleString("fr-FR");
 }
 
+/**
+ * @brief Format a number of hours as a human-readable elapsed-time string.
+ * @param hours Number of hours, or null/undefined.
+ * @param precise When true and hours < 1, display minutes instead of
+ * "moins d'1 heure".
+ * @return Formatted duration string.
+ */
 function formatDuration(hours, precise) {
   if (hours === null || hours === undefined) return "";
   if (precise && hours < 1) {
@@ -208,17 +279,29 @@ function formatDuration(hours, precise) {
   return `depuis ${days} jour${days > 1 ? "s" : ""}`;
 }
 
-// "known": real date + duration. "stale": operation_state seen (e.g. depot)
-// but never 1/2 in the window - the vehicle almost certainly last ran
-// before the window started. "unknown": operation_state never seen at all.
+/**
+ * @brief Format the "last exploitation" value for display, handling the
+ * three possible exploitation cases returned by the API.
+ * @param lastExploitation ISO timestamp string, or null.
+ * @param hoursSince Number of hours since lastExploitation, or null.
+ * @param exploitationCase One of "known", "stale", "unknown".
+ * @return HTML string to display in the corresponding table cell.
+ */
 function formatExploitation(lastExploitation, hoursSince, exploitationCase) {
   if (exploitationCase === "stale") return "Depuis plus de 30 jours";
   if (!lastExploitation) return "Aucune donnée";
   return `${formatDate(lastExploitation)}<br><small>${formatDuration(hoursSince)}</small>`;
 }
 
-// ---------- Vue détail véhicule ----------
+// ---------- Vehicle detail view ----------
 
+/**
+ * @brief Fetch and display the detail of one vehicle, then load its
+ * default (last 7 days) reporting history.
+ * @param numParc Vehicle number to look up.
+ * @return Promise that resolves once the detail and history have been
+ * rendered.
+ */
 async function showVehicleDetail(numParc) {
   currentVehicle = numParc;
   stopLiveCheck();
@@ -238,7 +321,6 @@ async function showVehicleDetail(numParc) {
 
     renderVehicleDetail(data);
 
-    // Default history range: last 7 days
     const today = new Date();
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 7);
@@ -248,6 +330,11 @@ async function showVehicleDetail(numParc) {
   });
 }
 
+/**
+ * @brief Render the vehicle detail summary, door grid and maintenance
+ * procedure reminder from a /api/vehicles/{num_parc} response.
+ * @param data Response object returned by the vehicle detail endpoint.
+ */
 function renderVehicleDetail(data) {
   document.getElementById("summary-num-parc").textContent = data.num_parc;
   document.getElementById("summary-door-ratio").textContent =
@@ -281,10 +368,6 @@ function renderVehicleDetail(data) {
     grid.appendChild(cell);
   });
 
-  // The procedure reminder is driven purely by door status (including
-  // "Aucune donnée" doors, which count as anomalie) - never by the
-  // vehicle-level WEBOX status alone, so it doesn't show for a vehicle
-  // whose doors are all fine.
   const hintEl = document.getElementById("procedure-hint");
   const totalDoors = data.doors.length;
 
@@ -299,11 +382,16 @@ function renderVehicleDetail(data) {
   }
 }
 
-// ---------- Vérification post-intervention (polling ciblé) ----------
+// ---------- Post-intervention check (targeted polling) ----------
 
+/**
+ * @brief Start polling the live-check endpoint every 30 seconds to detect
+ * when the current vehicle's anomaly has been resolved, stopping
+ * automatically after 15 minutes.
+ */
 function startLiveCheck() {
   const statusEl = document.getElementById("live-check-status");
-  liveCheckStopAt = Date.now() + 15 * 60 * 1000; // stop automatically after 15 min
+  liveCheckStopAt = Date.now() + 15 * 60 * 1000;
   statusEl.textContent = "En attente d'une nouvelle remontée...";
 
   liveCheckTimer = setInterval(async () => {
@@ -322,9 +410,12 @@ function startLiveCheck() {
       statusEl.textContent = `Résolu - nouvelle remontée détectée à ${formatDate(data.last_seen)}`;
       stopLiveCheck();
     }
-  }, 30 * 1000); // poll every 30 seconds
+  }, 30 * 1000);
 }
 
+/**
+ * @brief Stop the live-check polling interval, if running.
+ */
 function stopLiveCheck() {
   if (liveCheckTimer) {
     clearInterval(liveCheckTimer);
@@ -332,8 +423,14 @@ function stopLiveCheck() {
   }
 }
 
-// ---------- Historique ----------
+// ---------- History ----------
 
+/**
+ * @brief Rebuild the door filter options for the vehicle history section
+ * from the doors of the currently displayed vehicle.
+ * @param doors Array of door status dicts, as returned by the vehicle
+ * detail endpoint.
+ */
 function populateHistoryDoorFilter(doors) {
   const select = document.getElementById("history-door-filter");
   const previousValue = select.value;
@@ -354,6 +451,11 @@ function populateHistoryDoorFilter(doors) {
   }
 }
 
+/**
+ * @brief Fetch and display the door reporting history of the currently
+ * selected vehicle, for the selected date range and door filter.
+ * @return Promise that resolves once the list has been rendered.
+ */
 async function loadHistory() {
   await withSpinner("history-btn", "history-spinner", "history-timer", async () => {
     const start = document.getElementById("history-start").value;
@@ -384,6 +486,10 @@ async function loadHistory() {
   });
 }
 
+/**
+ * @brief Read the vehicle number typed in the detail search field and
+ * trigger showVehicleDetail, alerting the user if the field is empty.
+ */
 function searchVehicleFromInput() {
   const value = document.getElementById("detail-vehicle-input").value.trim();
   if (!value) {
@@ -393,12 +499,19 @@ function searchVehicleFromInput() {
   showVehicleDetail(value);
 }
 
-// ---------- Anomalies SAE / GPS ----------
+// ---------- SAE / GPS anomalies ----------
 
-// Fetched once per "Rafraîchir" click, then filtered client-side - same
-// pattern as allVehicles for the global view.
+/**
+ * @brief SAE/GPS fleet data fetched from the API, kept in memory. Filters
+ * and sorting are applied client-side against this array.
+ */
 let allSaeGpsVehicles = [];
 
+/**
+ * @brief Fetch the SAE/GPS status of the fleet from the API and refresh
+ * the two tables, type filter and statistics tab.
+ * @return Promise that resolves once the tables have been rendered.
+ */
 async function loadSaeGpsAnomalies() {
   await withSpinner("sae-gps-refresh-btn", "sae-gps-refresh-spinner", "sae-gps-refresh-timer", async () => {
     const res = await fetch(`${API_BASE}/vehicles-sae-gps`);
@@ -415,6 +528,11 @@ async function loadSaeGpsAnomalies() {
   });
 }
 
+/**
+ * @brief Rebuild the SAE/GPS "Type de véhicule" filter options from the
+ * currently loaded data, preserving the previous selection when still
+ * valid.
+ */
 function populateSaeGpsTypeFilter() {
   const select = document.getElementById("sae-gps-type-filter");
   const previousValue = select.value;
@@ -443,6 +561,12 @@ const gpsHeaderIds = {
   last_exploitation: "gps-col-last-exploitation", ratio: "gps-col-ratio", status: "gps-col-status",
 };
 
+/**
+ * @brief Build the sort key extractors for either the SAE or GPS table.
+ * @param field Either "sae" or "gps", selecting which sub-object of each
+ * vehicle entry to read ratio/status from.
+ * @return Object mapping column key to a key extractor function.
+ */
 function fieldKeyGetters(field) {
   return {
     num_parc: v => v.num_parc,
@@ -456,6 +580,13 @@ function fieldKeyGetters(field) {
   };
 }
 
+/**
+ * @brief Filter allSaeGpsVehicles for either the SAE or GPS table,
+ * applying the shared status/type/search filters.
+ * @param field Either "sae" or "gps", selecting which sub-object's status
+ * the status filter applies to.
+ * @return Filtered array of vehicle entries.
+ */
 function getFilteredSaeGpsVehicles(field) {
   const statusFilter = document.getElementById("sae-gps-status-filter").value;
   const typeFilter = document.getElementById("sae-gps-type-filter").value;
@@ -467,6 +598,10 @@ function getFilteredSaeGpsVehicles(field) {
     .filter(v => !search || String(v.num_parc).includes(search));
 }
 
+/**
+ * @brief Filter, sort and render both the SAE and GPS tables from
+ * allSaeGpsVehicles.
+ */
 function renderSaeGpsTables() {
   const saeRows = applySort(getFilteredSaeGpsVehicles("sae"), saeSortState, fieldKeyGetters("sae"));
   const gpsRows = applySort(getFilteredSaeGpsVehicles("gps"), gpsSortState, fieldKeyGetters("gps"));
@@ -478,6 +613,15 @@ function renderSaeGpsTables() {
   renderFieldTable("gps-table", gpsRows, "gps");
 }
 
+/**
+ * @brief Render one of the SAE/GPS table bodies from a list of vehicle
+ * entries.
+ * @param tableId ID of the table element to render into.
+ * @param vehicles Array of vehicle entries to render, already filtered
+ * and sorted.
+ * @param field Either "sae" or "gps", selecting which sub-object to read
+ * ratio/status from.
+ */
 function renderFieldTable(tableId, vehicles, field) {
   const tbody = document.querySelector(`#${tableId} tbody`);
   tbody.innerHTML = "";
@@ -502,8 +646,14 @@ function renderFieldTable(tableId, vehicles, field) {
   });
 }
 
-// ---------- Historique SAE / GPS ----------
+// ---------- SAE / GPS history ----------
 
+/**
+ * @brief Fetch and display the SAE/GPS presence history of the vehicle
+ * typed in the history vehicle field, for the selected date range.
+ * @return Promise that resolves once the two history lists have been
+ * rendered, or immediately if the vehicle field is empty.
+ */
 async function loadSaeGpsHistory() {
   const numParc = document.getElementById("sae-gps-history-vehicle-input").value.trim();
   if (!numParc) {
@@ -531,6 +681,14 @@ async function loadSaeGpsHistory() {
   });
 }
 
+/**
+ * @brief Render a presence/absence history list (SAE or GPS) from a list
+ * of report entries.
+ * @param listId ID of the list element to render into.
+ * @param reports Array of {timestamp, sae_present, gps_present} entries.
+ * @param presentField Name of the boolean field to read from each report
+ * ("sae_present" or "gps_present").
+ */
 function renderPresenceHistory(listId, reports, presentField) {
   const list = document.getElementById(listId);
   list.innerHTML = "";
@@ -548,19 +706,23 @@ function renderPresenceHistory(listId, reports, presentField) {
   });
 }
 
-// ---------- Statistiques ----------
+// ---------- Statistics ----------
 
-// null = not yet fetched (section 4 shows a placeholder). Only refreshed
-// via the stats tab's own "Rafraîchir" button, since it needs its own
-// dedicated (60-day) backend query - unlike the other 4 sections, which
-// are computed purely from allVehicles, already shared with the other tabs.
+/**
+ * @brief List of lingering-anomaly vehicle numbers fetched from
+ * /api/stats/lingering, or null if not fetched yet. Only refreshed by the
+ * statistics tab's own "Rafraîchir" button.
+ */
 let lingeringVehicles = null;
 
+/**
+ * @brief Refresh the statistics tab: reloads the global fleet and SAE/GPS
+ * data (updating those tabs too), fetches the lingering-anomaly list, and
+ * re-renders all five sections.
+ * @return Promise that resolves once the statistics have been rendered.
+ */
 async function loadStats() {
   await withSpinner("stats-refresh-btn", "stats-refresh-spinner", "stats-refresh-timer", async () => {
-    // Reuses the exact same functions as the "Rafraîchir" buttons on the
-    // Vue globale and Anomalies SAE/GPS tabs - so those tabs are also
-    // up to date afterward, without needing a separate click there.
     await loadVehicles();
     await loadSaeGpsAnomalies();
 
@@ -574,15 +736,17 @@ async function loadStats() {
   });
 }
 
+/**
+ * @brief Compute and render the five statistics sections from allVehicles
+ * and lingeringVehicles. Does nothing if no fleet data has been loaded yet.
+ */
 function renderStats() {
-  // Nothing loaded yet (page just opened, no tab refreshed) - keep the
-  // placeholder instead of showing empty/misleading numbers.
   if (allVehicles.length === 0) return;
 
   document.getElementById("stats-placeholder").classList.add("hidden");
   document.getElementById("stats-content").classList.remove("hidden");
 
-  // 1. État du parc
+  // 1. Fleet status
   const totalVehicles = allVehicles.length;
   const anomalieVehicles = allVehicles.filter(v => v.status === "anomalie").length;
   const pctVehicles = totalVehicles ? (anomalieVehicles / totalVehicles * 100).toFixed(1) : "0.0";
@@ -595,7 +759,7 @@ function renderStats() {
   document.getElementById("stats-doors-summary").textContent =
     `Portes en anomalie : ${anomalieDoors} / ${totalDoors} (${pctDoors}%)`;
 
-  // 2. Répartition par type de véhicule
+  // 2. Breakdown by vehicle type
   const byType = {};
   allVehicles.forEach(v => {
     if (!byType[v.rolling_stock_type]) byType[v.rolling_stock_type] = { anomalie: 0, total: 0 };
@@ -612,8 +776,7 @@ function renderStats() {
     typeTbody.appendChild(tr);
   });
 
-  // 3. Nouvelles anomalies (7 derniers jours) - anomalie AND dernière
-  // remontée datant de moins de 7 jours (168h). Simple liste, comme demandé.
+  // 3. New anomalies (less than 7 days)
   const newAnomalies = allVehicles.filter(v =>
     v.status === "anomalie" && v.hours_since_last_seen !== null && v.hours_since_last_seen <= 7 * 24
   );
@@ -622,8 +785,7 @@ function renderStats() {
   document.getElementById("stats-new-list").textContent =
     newAnomalies.length ? newAnomalies.map(v => v.num_parc).join(", ") : "—";
 
-  // 4. Anomalies qui traînent (> 30 jours) - depuis l'endpoint dédié
-  // /api/stats/lingering (fenêtre 30-60j, vérification approfondie).
+  // 4. Lingering anomalies (more than 30 days)
   if (lingeringVehicles === null) {
     document.getElementById("stats-lingering-summary").textContent =
       "Pas encore chargé - cliquez sur \"Rafraîchir\" sur cet onglet.";
@@ -635,10 +797,8 @@ function renderStats() {
       lingeringVehicles.length ? lingeringVehicles.join(", ") : "—";
   }
 
-  // 5. Durée moyenne des anomalies actuelles - estimation basée sur
-  // "depuis quand n'a-t-on plus de bon signal", moins le seuil de 48h.
-  // Les véhicules sans date connue (aucune donnée) ne peuvent pas être
-  // moyennés numériquement - ils sont exclus de ce calcul uniquement.
+  // 5. Average duration of current anomalies (estimate; vehicles with no
+  // known last-seen date are excluded from this specific average)
   const durations = allVehicles
     .filter(v => v.status === "anomalie" && v.hours_since_last_seen !== null)
     .map(v => Math.max(0, (v.hours_since_last_seen - 48) / 24));
@@ -652,8 +812,13 @@ function renderStats() {
   }
 }
 
-// ---------- Navigation par onglets ----------
+// ---------- Tab navigation ----------
 
+/**
+ * @brief Show the given tab panel and hide the others, updating the active
+ * tab button and stopping live-check polling when leaving the detail tab.
+ * @param tabId ID of the tab panel element to activate.
+ */
 function switchTab(tabId) {
   document.querySelectorAll(".tab-panel").forEach(panel => {
     panel.classList.toggle("active", panel.id === tabId);
@@ -662,16 +827,13 @@ function switchTab(tabId) {
     btn.classList.toggle("active", btn.dataset.tab === tabId);
   });
 
-  // Stop the post-intervention polling if we navigate away from the detail tab
   if (tabId !== "detail-view") {
     stopLiveCheck();
   }
 }
 
-// ---------- Navigation & événements ----------
+// ---------- Navigation & event listeners ----------
 
-// Only the refresh button hits the backend/BDD3. Filters just re-render
-// the data already in memory (allVehicles) - instant, no network call.
 document.getElementById("refresh-btn").addEventListener("click", loadVehicles);
 document.getElementById("status-filter").addEventListener("change", renderVehicleTable);
 document.getElementById("type-filter").addEventListener("change", renderVehicleTable);

@@ -1,12 +1,8 @@
-"""
-API routes for vehicle supervision.
-
-CDC mapping:
-- GET /api/vehicles        -> 3.1 Vue globale du parc
-- GET /api/vehicles/{id}   -> 3.2 Consultation détaillée d'un véhicule
-- GET /api/history/{id}    -> 3.3 Historique des remontées
-- GET /api/vehicles/{id}/live -> targeted post-intervention check (short polling)
-"""
+## @file vehicles.py
+#  @brief API endpoints for the fleet overview, vehicle detail, reporting
+#  history, and SAE/GPS status. Orchestrates database.py (data access) and
+#  anomaly.py (status computation) and shapes the JSON responses consumed
+#  by the front-end.
 
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime, date, timedelta
@@ -30,30 +26,25 @@ router = APIRouter(prefix="/api", tags=["vehicles"])
 
 @router.get("/vehicles")
 def list_vehicles(status: str | None = Query(default=None, description="fonctionnel | anomalie")):
-    """
-    CDC 3.1 + 5: global fleet view, optionally filtered by status.
+    """!
+    @brief Return the fleet overview: one entry per known vehicle with its
+    oldest door signal, last exploitation reference and overall status.
 
-    Per vehicle, this exposes exactly three pieces of information:
-    1. "last_seen" = the OLDEST last-seen timestamp among all its doors
-       (the "weakest link" - if any door is stale, this reflects it).
-    2. "last_exploitation" = the last time operation_state was 1 or 2
-       (genuinely in service).
-    3. "status": anomalie if (last_exploitation - last_seen) > 48h, i.e.
-       the door(s) went silent more than 2 days before the vehicle's last
-       real exploitation and never reported again since. If last_seen is
-       AFTER last_exploitation (e.g. a maintainer walking past a sensor
-       while the vehicle was idle at the depot), that's never an anomaly,
-       no matter how long ago that report was - it proves the door works.
+    For each vehicle, "last_seen" is the oldest last-seen timestamp among
+    its doors, "last_exploitation" is the last time operation_state showed
+    the vehicle in service, and "status" is "anomalie" if at least one door
+    is currently in anomaly (see the per-door rules applied below,
+    consistent with get_door_status_for_vehicle).
 
-    The door lookup only scans a 30-day window (not the full 60-day floor
-    used elsewhere) as a cost/thoroughness compromise for a fleet-wide
-    query - see fetch_door_last_seen_aggregate.
+    @param status Optional filter, "fonctionnel" or "anomalie".
+    @return JSON object with a "vehicles" list; each entry has num_parc,
+    last_seen, hours_since_last_seen, last_exploitation,
+    hours_since_last_exploitation, exploitation_case, status,
+    rolling_stock_type, door_count_functional, door_count_total.
     """
     metrics_df = fetch_metrics()
     vehicles = get_vehicle_overview(metrics_df)
 
-    # Vehicle numbers outside all configured rolling stock ranges are treated
-    # as a BDD3 data quality issue and excluded entirely (business decision).
     vehicles = [v for v in vehicles if is_known_vehicle(v["num_parc"])]
 
     for v in vehicles:
@@ -76,12 +67,6 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
         rolling_stock = get_rolling_stock(v["num_parc"])
         agg_row = door_agg_by_vehicle.get(v["num_parc"])
 
-        # Known door count -> we can tell "missing" from "doesn't exist".
-        # Unknown (e.g. buses) -> doors within the known minimum floor are
-        # always checked (even with zero data, per fleet_reference.py -
-        # every bus has at least that many doors), doors above the floor
-        # are only checked if they've reported at least once (same fallback
-        # limitation as the detail view for anything beyond the floor).
         minimum_doors = rolling_stock["minimum_doors"] if rolling_stock else 0
         if rolling_stock and rolling_stock["door_count"] is not None:
             candidate_doors = range(1, rolling_stock["door_count"] + 1)
@@ -91,10 +76,6 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
         else:
             candidate_doors = range(1, minimum_doors + 1)
 
-        # Per-door status (same rules as the detail view): a door with no
-        # data is always "anomalie". Otherwise, "stale" exploitation skips
-        # the time comparison entirely (any data = fonctionnel); "unknown"
-        # falls back to comparing to "now"; "known" compares to last_exp.
         door_last_seen = {}
         for n in candidate_doors:
             ts = agg_row.get(f"p{n}_last") if agg_row is not None else None
@@ -127,8 +108,6 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
             round((now - oldest_door_ts).total_seconds() / 3600, 1) if oldest_door_ts is not None else None
         )
 
-        # Any door in anomaly (including "no data at all") makes the whole
-        # vehicle "anomalie" - same rule as the detail view's overall_status.
         v["status"] = "anomalie" if door_count_functional < door_count_total else "fonctionnel"
 
     if status:
@@ -139,20 +118,20 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
 
 @router.get("/vehicles/{num_parc}")
 def get_vehicle_detail(num_parc: int):
-    """
-    CDC 3.2: detailed view for one vehicle, including per-door status,
-    rolling stock type and functional/total door count.
+    """!
+    @brief Return the detailed status of one vehicle, including per-door
+    status, rolling stock type and functional/total door count.
 
-    The overall "status" is "anomalie" if either the vehicle itself (WEBOX)
-    hasn't reported recently, OR at least one door is in anomaly - a door
-    with zero data at all must never be silently counted as "fonctionnel".
+    The overall "status" is "anomalie" if the vehicle itself hasn't
+    reported recently, or if at least one door is in anomaly.
 
-    Always fetches the full lookback window (metrics AND door_counts) for
-    this one vehicle - already fast since both queries are filtered to a
-    single num_parc in SQL. An earlier "since" narrowing optimization was
-    removed: it caused doors with real, older-than-"since" data to
-    incorrectly show "Aucune donnée" when navigating from the global view,
-    since the hint value wasn't always old enough to cover them.
+    @param num_parc Vehicle number.
+    @return JSON object with num_parc, last_seen, hours_since_last_seen,
+    status, last_exploitation, hours_since_last_exploitation,
+    exploitation_case, rolling_stock_type, door_count_functional,
+    door_count_total, doors (list of per-door status dicts).
+    @exception HTTPException 404 if the vehicle number is unknown or has
+    no data in the lookback window.
     """
     if not is_known_vehicle(num_parc):
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
@@ -167,17 +146,10 @@ def get_vehicle_detail(num_parc: int):
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
 
     rolling_stock = get_rolling_stock(num_parc)
-    # door_count can be None (e.g. buses, whose door count varies by model) -
-    # in that case we fall back to dynamic door-count detection.
     expected_doors = None
     if rolling_stock and rolling_stock["door_count"] is not None:
         expected_doors = list(range(1, rolling_stock["door_count"] + 1))
 
-    # Compare each door's last report to the vehicle's last genuine
-    # exploitation, not to "now" - see anomaly.get_door_status_for_vehicle.
-    # If operation_state has been seen (e.g. depot) but never 1/2 in the
-    # window ("stale"), there's no usable reference - skip the silence
-    # check entirely rather than comparing to "now" or a fake reference.
     exploitation_case, last_exploitation = get_exploitation_case(metrics_df)
     reference_time = last_exploitation or utc_now()
 
@@ -189,10 +161,6 @@ def get_vehicle_detail(num_parc: int):
     )
     functional_count = sum(1 for d in doors if d["status"] == "fonctionnel")
 
-    # A door with zero data, or genuinely stale relative to reference_time,
-    # must make the whole vehicle "anomalie" - it was previously possible
-    # for the vehicle-level status (WEBOX-only) to say "fonctionnel" while
-    # a door showed "Aucune donnée".
     overall_status = vehicle["status"]
     if any(d["status"] == "anomalie" for d in doors):
         overall_status = "anomalie"
@@ -221,10 +189,12 @@ def get_vehicle_detail(num_parc: int):
 
 @router.get("/vehicles/{num_parc}/live")
 def check_vehicle_live(num_parc: int):
-    """
-    Lightweight, on-demand check used by the front-end's
-    "vérification post-intervention" mode. Just re-runs the (already fast,
-    per-vehicle) detail lookup - no separate narrowing needed.
+    """!
+    @brief Lightweight re-check of one vehicle's detail, used to confirm a
+    door has recovered after a repair.
+
+    @param num_parc Vehicle number.
+    @return Same response shape as get_vehicle_detail.
     """
     return get_vehicle_detail(num_parc)
 
@@ -236,16 +206,20 @@ def get_vehicle_history(
     end_date: date | None = Query(default=None),
     door: int | None = Query(default=None, description="Numéro de porte physique (ex: 11, 31...)"),
 ):
-    """
-    CDC 3.3: reporting history over a given period (max 2 months of raw
-    data available). Each entry is a single door's report (a row in
-    door_counts can have several doors reporting at once, in which case it
-    produces several entries with the same timestamp). Sorted from the
-    most recent to the oldest.
+    """!
+    @brief Return the door reporting history of one vehicle over a period.
 
-    "door" filters to a single physical door number (as shown in the UI,
-    e.g. 11, 31...), useful to investigate a specific door known to be
-    faulty without the noise of the other doors' reports.
+    Each entry represents a single door's report; a door_counts row with
+    several doors reporting at once produces several entries sharing the
+    same timestamp.
+
+    @param num_parc Vehicle number.
+    @param start_date Optional inclusive lower bound on the report date.
+    @param end_date Optional inclusive upper bound on the report date.
+    @param door Optional physical door number to filter on.
+    @return JSON object with num_parc and a "reports" list of
+    {timestamp, porte} entries, sorted from the most recent to the oldest.
+    @exception HTTPException 404 if the vehicle number is unknown.
     """
     if not is_known_vehicle(num_parc):
         raise HTTPException(status_code=404, detail="Véhicule introuvable")
@@ -292,11 +266,13 @@ def get_vehicle_history(
 
 @router.get("/vehicles-sae-gps")
 def list_vehicles_sae_gps():
-    """
-    CDC 4.3 (absence de trame SAE) + 4.4 (anomalie GPS) - one row per known
-    vehicle with SAE and GPS status. Uses a dedicated query (metrics table
-    only, but with num_parc_sae/latitude/longitude) - see
-    database.fetch_metrics_sae_gps.
+    """!
+    @brief Return the SAE and GPS status of every known vehicle.
+
+    @return JSON object with a "vehicles" list; each entry has num_parc,
+    last_seen, hours_since_last_seen, last_exploitation,
+    hours_since_last_exploitation, exploitation_case, rolling_stock_type,
+    sae and gps (status dicts as returned by anomaly.get_sae_gps_status).
     """
     metrics_df = fetch_metrics_sae_gps()
     vehicles = get_sae_gps_status(metrics_df)
@@ -314,12 +290,17 @@ def get_vehicle_history_sae_gps(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
 ):
-    """
-    History of SAE/GPS presence for one vehicle over a period, from the
-    "metrics" table - one entry per report with a flag for whether SAE and
-    GPS were present on that specific row. Sorted from the most recent to
-    the oldest. Used by the two side-by-side history blocks in the
-    "Anomalies SAE / GPS" tab.
+    """!
+    @brief Return the SAE/GPS presence history of one vehicle over a
+    period, one entry per metrics report.
+
+    @param num_parc Vehicle number.
+    @param start_date Optional inclusive lower bound on the report date.
+    @param end_date Optional inclusive upper bound on the report date.
+    @return JSON object with num_parc and a "reports" list of
+    {timestamp, sae_present, gps_present} entries, sorted from the most
+    recent to the oldest.
+    @exception HTTPException 404 if the vehicle number is unknown.
     """
     if not is_known_vehicle(num_parc):
         raise HTTPException(status_code=404, detail="Véhicule introuvable")

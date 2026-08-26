@@ -1,14 +1,8 @@
-"""
-Data access layer.
-
-Reads from the real BDD3 PostgreSQL database (tables "metrics" and "door_counts")
-when USE_SAMPLE_DATA is false, or from local sample CSV files otherwise.
-
-IMPORTANT (per CDC section 2 - "Source de données"):
-Passenger volume fields (PX_IN, PX_OUT, total_in, total_out) are read here
-only when needed to compute a "last seen" timestamp per door, but must NEVER
-be returned to the API / displayed in the tool. See anomaly.py and routes/.
-"""
+## @file database.py
+#  @brief Data access layer: opens the PostgreSQL connection, builds and runs
+#  every SQL query against the "metrics" and "door_counts" tables, and
+#  converts the results into pandas DataFrames with a unified "timestamp"
+#  column. Falls back to local sample CSV files when USE_SAMPLE_DATA is set.
 
 import re
 import psycopg2
@@ -23,33 +17,34 @@ from app.config import (
     HISTORY_LOOKBACK_DAYS,
 )
 
+## Directory containing the sample CSV files used when USE_SAMPLE_DATA is true.
 SAMPLE_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
+## Regex matching a door_counts column name such as "P3_IN" or "P12_OUT".
 DOOR_COLUMN_PATTERN = re.compile(r"^P(\d+)_(IN|OUT)$", re.IGNORECASE)
 
+## Time zone used to convert UTC timestamps to local time for display.
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
 
 def utc_now() -> datetime:
-    """
-    Current time in UTC, naive (no tzinfo attached) - matches the convention
-    used for every "timestamp" column derived from date_wb/heure_wb, which
-    are UTC per the BDD3 doc.
+    """!
+    @brief Return the current time in UTC as a naive datetime (no tzinfo).
 
-    Never use datetime.now() directly for anomaly/duration math: it returns
-    the *local* system clock, which would silently bias every duration
-    calculation by the UTC offset (1-2h depending on daylight saving) when
-    compared against our UTC-based timestamps.
+    @return Current UTC time, matching the convention used by every
+    "timestamp" column derived from date_wb/heure_wb.
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def to_local_iso(ts):
-    """
-    Convert a naive UTC timestamp (as stored in our "timestamp" columns) to
-    Europe/Paris local time and format as an ISO 8601 string (no UTC offset)
-    - for DISPLAY only, in API responses consumed by the front-end.
-    Returns None for missing values.
+    """!
+    @brief Convert a naive UTC timestamp into an Europe/Paris local-time ISO
+    8601 string, for display in API responses.
+
+    @param ts A naive UTC timestamp (datetime, pandas Timestamp, or None).
+    @return ISO 8601 string in local time with no UTC offset, or None if
+    ts is None or NaN.
     """
     if ts is None:
         return None
@@ -63,14 +58,14 @@ def to_local_iso(ts):
 
 
 def _combine_date_time(df: pd.DataFrame, date_col: str, time_col: str) -> pd.Series:
-    """
-    Combine a DATE column and a TIME column into a single datetime Series
-    (both already in UTC, e.g. date_wb/heure_wb).
+    """!
+    @brief Combine a DATE column and a TIME column into a single datetime
+    Series, assuming both are already expressed in UTC.
 
-    This is much faster than concatenating them into a string and parsing
-    with pd.to_datetime(errors="coerce"), which falls back to a slow
-    row-by-row dateutil parse whenever the format can't be inferred
-    (e.g. because some rows have missing/empty values).
+    @param df DataFrame containing the two columns.
+    @param date_col Name of the date column.
+    @param time_col Name of the time column.
+    @return A pandas Series of combined datetime values.
     """
     dates = pd.to_datetime(df[date_col], errors="coerce")
     times = pd.to_timedelta(df[time_col].astype(str), errors="coerce")
@@ -78,13 +73,14 @@ def _combine_date_time(df: pd.DataFrame, date_col: str, time_col: str) -> pd.Ser
 
 
 def _combine_date_time_sae_to_utc(df: pd.DataFrame, date_col: str, time_col: str) -> pd.Series:
-    """
-    Same as _combine_date_time, but for date_sae/heure_sae specifically:
-    per the BDD3 doc, heure_sae is LOCAL French time (UTC+1 in winter,
-    UTC+2 in summer/DST), unlike heure_wb which is plain UTC. Without this
-    conversion, timestamps derived from the SAE fallback would be off by
-    1-2 hours compared to WB-based ones, silently corrupting duration
-    calculations for any row relying on the SAE fallback.
+    """!
+    @brief Combine a DATE column and a TIME column expressed in local French
+    time (as used by date_sae/heure_sae) and convert the result to UTC.
+
+    @param df DataFrame containing the two columns.
+    @param date_col Name of the date column (local time).
+    @param time_col Name of the time column (local time).
+    @return A pandas Series of combined datetime values, converted to UTC.
     """
     naive_local = _combine_date_time(df, date_col, time_col)
     localized = naive_local.dt.tz_localize(PARIS_TZ, ambiguous="NaT", nonexistent="NaT")
@@ -92,13 +88,14 @@ def _combine_date_time_sae_to_utc(df: pd.DataFrame, date_col: str, time_col: str
 
 
 def _lookback_start(since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> datetime:
-    """
-    Resolve the actual start date to query from.
-    "since" narrows the window when the caller already knows a more recent
-    reference point - but we never look back further than max_days_back
-    (defaults to HISTORY_LOOKBACK_DAYS, the hard floor used everywhere
-    except the stats "anomalies qui traînent" check, which explicitly
-    widens this to look 30-60 days back).
+    """!
+    @brief Resolve the start date to use in a query's date range.
+
+    @param since Optional datetime; if provided and more recent than the
+    computed floor, it narrows the window.
+    @param max_days_back Maximum number of days to look back; defines the
+    floor of the window.
+    @return The datetime to use as the lower bound of the query.
     """
     floor = utc_now() - timedelta(days=max_days_back)
     if since is not None and since > floor:
@@ -107,7 +104,12 @@ def _lookback_start(since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> d
 
 
 def get_connection():
-    """Open a new connection to BDD3. Caller is responsible for closing it."""
+    """!
+    @brief Open a new connection to the database.
+
+    @return A psycopg2 connection object. The caller is responsible for
+    closing it.
+    """
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -118,11 +120,12 @@ def get_connection():
 
 
 def _detect_door_columns(columns):
-    """
-    Given a list of column names from door_counts, return the sorted list of
-    door numbers found (e.g. [1, 2, 3, 4]) based on PX_IN / PX_OUT columns.
-    This avoids hardcoding the number of doors, since it can differ between
-    buses and trams.
+    """!
+    @brief Extract the sorted list of door numbers present in a list of
+    column names, based on the "PX_IN" / "PX_OUT" naming pattern.
+
+    @param columns Iterable of column names.
+    @return Sorted list of integer door numbers found.
     """
     doors = set()
     for col in columns:
@@ -133,11 +136,15 @@ def _detect_door_columns(columns):
 
 
 def fetch_metrics(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch recent rows from the "metrics" table, for the whole fleet.
-    Only non-sensitive fields are selected (no total_in / total_out).
-    Used by the global fleet view (CDC 3.1) only - for a single vehicle,
-    use fetch_metrics_for_vehicle instead (much faster).
+    """!
+    @brief Fetch recent rows from the "metrics" table for the whole fleet.
+
+    Selects only fields needed for vehicle-level status and exploitation
+    history (no passenger volume totals). Adds a combined "timestamp"
+    column, preferring the WB source and falling back to SAE.
+
+    @param days_back Number of days to look back.
+    @return DataFrame with one row per metrics report, whole fleet.
     """
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
@@ -162,18 +169,18 @@ def fetch_metrics(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
 
     ts_wb = _combine_date_time(df, "date_wb", "heure_wb")
     ts_sae = _combine_date_time_sae_to_utc(df, "date_sae", "heure_sae")
-    # Use the WB timestamp when present, otherwise fall back to the SAE one.
     df["timestamp"] = ts_wb.combine_first(ts_sae)
     return df
 
 
 def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch recent "metrics" rows for the whole fleet, including num_parc_sae,
-    latitude and longitude - used ONLY by the SAE/GPS anomaly tab (CDC 4.3
-    and 4.4). Kept as a separate query from fetch_metrics() on purpose: the
-    global fleet view doesn't need these fields, so they're not selected
-    there to keep that query lean.
+    """!
+    @brief Fetch recent "metrics" rows for the whole fleet, including
+    num_parc_sae, latitude, longitude and operation_state.
+
+    @param days_back Number of days to look back.
+    @return DataFrame with one row per metrics report, whole fleet,
+    including the fields needed for SAE/GPS anomaly detection.
     """
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
@@ -206,10 +213,13 @@ def fetch_metrics_sae_gps(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFram
 
 
 def fetch_metrics_sae_gps_for_vehicle(num_parc, since=None) -> pd.DataFrame:
-    """
-    Same as fetch_metrics_sae_gps, but filtered to a single vehicle in SQL -
-    used by the SAE/GPS history feature (one vehicle at a time, so filtering
-    server-side keeps it fast, same pattern as fetch_metrics_for_vehicle).
+    """!
+    @brief Fetch "metrics" rows for a single vehicle, including num_parc_sae,
+    latitude and longitude, filtered directly in SQL.
+
+    @param num_parc Vehicle number to filter on.
+    @param since Optional datetime narrowing the query window.
+    @return DataFrame with one row per metrics report for that vehicle.
     """
     start_date = _lookback_start(since)
 
@@ -245,15 +255,14 @@ def fetch_metrics_sae_gps_for_vehicle(num_parc, since=None) -> pd.DataFrame:
 
 
 def fetch_metrics_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch "metrics" rows for a single vehicle only - filtered directly in
-    SQL. Used by the vehicle detail and live-check endpoints so they don't
-    have to re-fetch the whole fleet's metrics just to read one vehicle's
-    last report time.
+    """!
+    @brief Fetch "metrics" rows for a single vehicle, filtered directly in
+    SQL.
 
-    max_days_back defaults to HISTORY_LOOKBACK_DAYS (30d) everywhere except
-    the stats "anomalies qui traînent" check, which widens it to 60d to
-    re-verify candidates against a longer history.
+    @param num_parc Vehicle number to filter on.
+    @param since Optional datetime narrowing the query window.
+    @param max_days_back Maximum number of days to look back.
+    @return DataFrame with one row per metrics report for that vehicle.
     """
     start_date = _lookback_start(since, max_days_back=max_days_back)
 
@@ -286,6 +295,7 @@ def fetch_metrics_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY
     return df
 
 
+## Explicit list of columns selected from door_counts (avoids SELECT *).
 DOOR_COUNTS_COLUMNS = [
     "num_parc_wb", "date_wb", "heure_wb",
     *[f'"P{n}_{d}"' for n in range(1, 17) for d in ("IN", "OUT")],
@@ -293,19 +303,16 @@ DOOR_COUNTS_COLUMNS = [
 
 
 def fetch_door_counts_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch door_counts rows for a single vehicle only.
+    """!
+    @brief Fetch door_counts rows for a single vehicle, filtered directly in
+    SQL.
 
-    Used by the vehicle detail, live-check and history endpoints. Filtering
-    directly in SQL (instead of fetching the whole fleet and filtering with
-    pandas) keeps these fast, since door_counts holds every vehicle's data
-    with up to 16 doors x 2 columns each. Columns are listed explicitly
-    (not SELECT *) to only pull what's actually used.
-
-    "since" lets the caller narrow the window further when a more recent
-    reference point is already known. max_days_back defaults to
-    HISTORY_LOOKBACK_DAYS (30d) everywhere except the stats "anomalies qui
-    traînent" check, which widens it to 60d.
+    @param num_parc Vehicle number to filter on.
+    @param since Optional datetime narrowing the query window.
+    @param max_days_back Maximum number of days to look back.
+    @return DataFrame with one row per door_counts report for that vehicle,
+    including a "timestamp" column and one pair of PX_IN/PX_OUT columns
+    per door.
     """
     start_date = _lookback_start(since, max_days_back=max_days_back)
 
@@ -328,27 +335,25 @@ def fetch_door_counts_for_vehicle(num_parc, since=None, max_days_back: int = HIS
 
 
 def get_door_columns(door_counts_df: pd.DataFrame):
-    """Public helper so other modules can find which door numbers exist in the data."""
+    """!
+    @brief Public wrapper exposing the door numbers present in a
+    door_counts DataFrame.
+
+    @param door_counts_df DataFrame with door_counts-style columns.
+    @return Sorted list of integer door numbers found.
+    """
     return _detect_door_columns(door_counts_df.columns)
 
 
 def fetch_door_last_seen_aggregate(days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    For the whole fleet, compute the last-seen timestamp of EACH door
-    directly in SQL (one aggregate query, GROUP BY vehicle) instead of
-    fetching every raw row.
+    """!
+    @brief Compute the last-seen timestamp of each door for the whole fleet
+    in a single aggregate SQL query (GROUP BY vehicle).
 
-    This lets the global view (CDC 3.1) also catch door-level anomalies
-    (CDC 4.2) - e.g. one dead door out of sixteen - without paying the cost
-    of a full door_counts fetch for the entire fleet.
-
-    days_back defaults to HISTORY_LOOKBACK_DAYS (30 days) - the same window
-    used everywhere else in the app, for consistency.
-
-    Returns one row per vehicle with columns num_parc, p1_last .. p16_last.
-    A NULL column for a given door either means it hasn't reported within
-    `days_back`, OR that the door doesn't exist on that vehicle - callers
-    with known expected door counts (fleet_reference.py) can disambiguate.
+    @param days_back Number of days to look back.
+    @return DataFrame with one row per vehicle and columns num_parc,
+    p1_last .. p16_last. A NULL column means either the door hasn't
+    reported within days_back, or it doesn't exist on that vehicle.
     """
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")

@@ -7,6 +7,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Generated documentation - rebuild anytime with "doxygen Doxyfile"
+docs/
+
 # OS
 .DS_Store
 Thumbs.db
