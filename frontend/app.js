@@ -3,19 +3,33 @@
 
 const API_BASE = "/api";
 
-// Shows a spinner next to a button and disables it while an async action
-// runs - so the user gets visual feedback and can't spam-click while a
-// request is in flight. Always restores the button state, even on error.
-async function withSpinner(buttonId, spinnerId, asyncFn) {
+// Shows a spinner + an elapsed-time counter next to a button, and disables
+// it while an async action runs - so the user gets visual feedback and
+// can't spam-click while a request is in flight. The counter keeps running
+// live during the load, then STOPS (but stays visible, showing the final
+// duration) once done - reset to 0 on the next click. Nothing is persisted
+// anywhere (no browser storage) - purely in-memory for the current action.
+async function withSpinner(buttonId, spinnerId, timerId, asyncFn) {
   const button = document.getElementById(buttonId);
   const spinner = document.getElementById(spinnerId);
+  const timer = document.getElementById(timerId);
+
   button.disabled = true;
   spinner.classList.remove("hidden");
+
+  const startTime = Date.now();
+  timer.textContent = "0 s";
+  const intervalId = setInterval(() => {
+    timer.textContent = `${Math.floor((Date.now() - startTime) / 1000)} s`;
+  }, 200);
+
   try {
     await asyncFn();
   } finally {
+    clearInterval(intervalId);
     button.disabled = false;
     spinner.classList.add("hidden");
+    timer.textContent = `Terminé en ${((Date.now() - startTime) / 1000).toFixed(1)} s`;
   }
 }
 
@@ -109,7 +123,7 @@ const globalKeyGetters = {
 };
 
 async function loadVehicles() {
-  await withSpinner("refresh-btn", "refresh-spinner", async () => {
+  await withSpinner("refresh-btn", "refresh-spinner", "refresh-timer", async () => {
     const res = await fetch(API_BASE + "/vehicles");
     const data = await res.json();
     allVehicles = data.vehicles;
@@ -209,7 +223,7 @@ async function showVehicleDetail(numParc) {
   currentVehicle = numParc;
   stopLiveCheck();
 
-  await withSpinner("detail-search-btn", "detail-search-spinner", async () => {
+  await withSpinner("detail-search-btn", "detail-search-spinner", "detail-search-timer", async () => {
     const url = new URL(`${API_BASE}/vehicles/${numParc}`, window.location.origin);
 
     const res = await fetch(url);
@@ -341,7 +355,7 @@ function populateHistoryDoorFilter(doors) {
 }
 
 async function loadHistory() {
-  await withSpinner("history-btn", "history-spinner", async () => {
+  await withSpinner("history-btn", "history-spinner", "history-timer", async () => {
     const start = document.getElementById("history-start").value;
     const end = document.getElementById("history-end").value;
     const door = document.getElementById("history-door-filter").value;
@@ -386,7 +400,7 @@ function searchVehicleFromInput() {
 let allSaeGpsVehicles = [];
 
 async function loadSaeGpsAnomalies() {
-  await withSpinner("sae-gps-refresh-btn", "sae-gps-refresh-spinner", async () => {
+  await withSpinner("sae-gps-refresh-btn", "sae-gps-refresh-spinner", "sae-gps-refresh-timer", async () => {
     const res = await fetch(`${API_BASE}/vehicles-sae-gps`);
     const data = await res.json();
     allSaeGpsVehicles = data.vehicles;
@@ -497,7 +511,7 @@ async function loadSaeGpsHistory() {
     return;
   }
 
-  await withSpinner("sae-gps-history-btn", "sae-gps-history-spinner", async () => {
+  await withSpinner("sae-gps-history-btn", "sae-gps-history-spinner", "sae-gps-history-timer", async () => {
     const start = document.getElementById("sae-gps-history-start").value;
     const end = document.getElementById("sae-gps-history-end").value;
 
@@ -543,7 +557,7 @@ function renderPresenceHistory(listId, reports, presentField) {
 let lingeringVehicles = null;
 
 async function loadStats() {
-  await withSpinner("stats-refresh-btn", "stats-refresh-spinner", async () => {
+  await withSpinner("stats-refresh-btn", "stats-refresh-spinner", "stats-refresh-timer", async () => {
     // Reuses the exact same functions as the "Rafraîchir" buttons on the
     // Vue globale and Anomalies SAE/GPS tabs - so those tabs are also
     // up to date afterward, without needing a separate click there.
