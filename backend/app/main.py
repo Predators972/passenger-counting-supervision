@@ -12,11 +12,12 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from app.routes import vehicles
+from app.routes import vehicles, stats
 
 app = FastAPI(title="Outil de supervision - comptage voyageurs")
 
 app.include_router(vehicles.router)
+app.include_router(stats.router)
 
 # Serve the front-end (plain HTML/CSS/JS, no build step required)
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"

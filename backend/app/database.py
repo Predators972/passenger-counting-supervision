@@ -91,15 +91,16 @@ def _combine_date_time_sae_to_utc(df: pd.DataFrame, date_col: str, time_col: str
     return localized.dt.tz_convert("UTC").dt.tz_localize(None)
 
 
-def _lookback_start(since=None) -> datetime:
+def _lookback_start(since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> datetime:
     """
     Resolve the actual start date to query from.
     "since" narrows the window when the caller already knows a more recent
-    reference point (e.g. the vehicle's last known report from the global
-    view) - but we never look back further than HISTORY_LOOKBACK_DAYS,
-    which is the hard floor.
+    reference point - but we never look back further than max_days_back
+    (defaults to HISTORY_LOOKBACK_DAYS, the hard floor used everywhere
+    except the stats "anomalies qui traînent" check, which explicitly
+    widens this to look 30-60 days back).
     """
-    floor = utc_now() - timedelta(days=HISTORY_LOOKBACK_DAYS)
+    floor = utc_now() - timedelta(days=max_days_back)
     if since is not None and since > floor:
         return since
     return floor
@@ -243,14 +244,18 @@ def fetch_metrics_sae_gps_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     return df
 
 
-def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
+def fetch_metrics_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
     """
     Fetch "metrics" rows for a single vehicle only - filtered directly in
     SQL. Used by the vehicle detail and live-check endpoints so they don't
     have to re-fetch the whole fleet's metrics just to read one vehicle's
     last report time.
+
+    max_days_back defaults to HISTORY_LOOKBACK_DAYS (30d) everywhere except
+    the stats "anomalies qui traînent" check, which widens it to 60d to
+    re-verify candidates against a longer history.
     """
-    start_date = _lookback_start(since)
+    start_date = _lookback_start(since, max_days_back=max_days_back)
 
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
@@ -276,7 +281,7 @@ def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
             df = pd.read_sql(query, conn, params=params)
 
     ts_wb = _combine_date_time(df, "date_wb", "heure_wb")
-    ts_sae = _combine_date_time(df, "date_sae", "heure_sae")
+    ts_sae = _combine_date_time_sae_to_utc(df, "date_sae", "heure_sae")
     df["timestamp"] = ts_wb.combine_first(ts_sae)
     return df
 
@@ -287,7 +292,7 @@ DOOR_COUNTS_COLUMNS = [
 ]
 
 
-def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
+def fetch_door_counts_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
     """
     Fetch door_counts rows for a single vehicle only.
 
@@ -298,10 +303,11 @@ def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     (not SELECT *) to only pull what's actually used.
 
     "since" lets the caller narrow the window further when a more recent
-    reference point is already known (see routes/vehicles.py) - bounded by
-    HISTORY_LOOKBACK_DAYS as a hard floor either way.
+    reference point is already known. max_days_back defaults to
+    HISTORY_LOOKBACK_DAYS (30d) everywhere except the stats "anomalies qui
+    traînent" check, which widens it to 60d.
     """
-    start_date = _lookback_start(since)
+    start_date = _lookback_start(since, max_days_back=max_days_back)
 
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")

@@ -15,6 +15,7 @@
       <button class="tab-btn active" id="tab-btn-global" data-tab="global-view">Vue globale</button>
       <button class="tab-btn" id="tab-btn-detail" data-tab="detail-view">Détail véhicule</button>
       <button class="tab-btn" id="tab-btn-sae-gps" data-tab="sae-gps-view">Anomalies SAE / GPS</button>
+      <button class="tab-btn" id="tab-btn-stats" data-tab="stats-view">Statistiques</button>
     </nav>
 
     <!-- Vue globale du parc (CDC 3.1) -->
@@ -196,6 +197,46 @@
           <h4>Historique GPS</h4>
           <ul id="gps-history-list"></ul>
         </div>
+      </div>
+    </section>
+
+    <!-- Statistiques -->
+    <section id="stats-view" class="tab-panel">
+      <div class="toolbar">
+        <button id="stats-refresh-btn" disabled>Rafraîchir</button>
+        <span id="stats-refresh-spinner" class="spinner hidden"></span>
+        <span id="stats-last-refresh"></span>
+      </div>
+
+      <p id="stats-placeholder">Cet onglet est en cours de développement — pas encore disponible.</p>
+
+      <div id="stats-content" class="hidden">
+        <h3>1. État du parc</h3>
+        <p id="stats-vehicles-summary"></p>
+        <p id="stats-doors-summary"></p>
+
+        <h3>2. Répartition par type de véhicule</h3>
+        <table id="stats-type-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Anomalie / Total</th>
+              <th>Pourcentage</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <h3>3. Nouvelles anomalies (7 derniers jours)</h3>
+        <p id="stats-new-summary"></p>
+        <p id="stats-new-list"></p>
+
+        <h3>4. Anomalies qui traînent (plus de 30 jours)</h3>
+        <p id="stats-lingering-summary"></p>
+        <p id="stats-lingering-list"></p>
+
+        <h3>5. Durée moyenne des anomalies actuelles</h3>
+        <p id="stats-avg-duration"></p>
       </div>
     </section>
   </main>

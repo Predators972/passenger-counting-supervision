@@ -118,6 +118,8 @@ async function loadVehicles() {
     renderVehicleTable();
     document.getElementById("last-refresh").textContent =
       "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+
+    renderStats();
   });
 }
 
@@ -394,6 +396,8 @@ async function loadSaeGpsAnomalies() {
 
     document.getElementById("sae-gps-last-refresh").textContent =
       "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+
+    renderStats();
   });
 }
 
@@ -530,6 +534,110 @@ function renderPresenceHistory(listId, reports, presentField) {
   });
 }
 
+// ---------- Statistiques ----------
+
+// null = not yet fetched (section 4 shows a placeholder). Only refreshed
+// via the stats tab's own "Rafraîchir" button, since it needs its own
+// dedicated (60-day) backend query - unlike the other 4 sections, which
+// are computed purely from allVehicles, already shared with the other tabs.
+let lingeringVehicles = null;
+
+async function loadStats() {
+  await withSpinner("stats-refresh-btn", "stats-refresh-spinner", async () => {
+    // Reuses the exact same functions as the "Rafraîchir" buttons on the
+    // Vue globale and Anomalies SAE/GPS tabs - so those tabs are also
+    // up to date afterward, without needing a separate click there.
+    await loadVehicles();
+    await loadSaeGpsAnomalies();
+
+    const res = await fetch(`${API_BASE}/stats/lingering`);
+    const data = await res.json();
+    lingeringVehicles = data.vehicles;
+
+    renderStats();
+    document.getElementById("stats-last-refresh").textContent =
+      "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+  });
+}
+
+function renderStats() {
+  // Nothing loaded yet (page just opened, no tab refreshed) - keep the
+  // placeholder instead of showing empty/misleading numbers.
+  if (allVehicles.length === 0) return;
+
+  document.getElementById("stats-placeholder").classList.add("hidden");
+  document.getElementById("stats-content").classList.remove("hidden");
+
+  // 1. État du parc
+  const totalVehicles = allVehicles.length;
+  const anomalieVehicles = allVehicles.filter(v => v.status === "anomalie").length;
+  const pctVehicles = totalVehicles ? (anomalieVehicles / totalVehicles * 100).toFixed(1) : "0.0";
+  document.getElementById("stats-vehicles-summary").textContent =
+    `Véhicules en anomalie : ${anomalieVehicles} / ${totalVehicles} (${pctVehicles}%)`;
+
+  const totalDoors = allVehicles.reduce((sum, v) => sum + v.door_count_total, 0);
+  const anomalieDoors = allVehicles.reduce((sum, v) => sum + (v.door_count_total - v.door_count_functional), 0);
+  const pctDoors = totalDoors ? (anomalieDoors / totalDoors * 100).toFixed(1) : "0.0";
+  document.getElementById("stats-doors-summary").textContent =
+    `Portes en anomalie : ${anomalieDoors} / ${totalDoors} (${pctDoors}%)`;
+
+  // 2. Répartition par type de véhicule
+  const byType = {};
+  allVehicles.forEach(v => {
+    if (!byType[v.rolling_stock_type]) byType[v.rolling_stock_type] = { anomalie: 0, total: 0 };
+    byType[v.rolling_stock_type].total++;
+    if (v.status === "anomalie") byType[v.rolling_stock_type].anomalie++;
+  });
+  const typeTbody = document.querySelector("#stats-type-table tbody");
+  typeTbody.innerHTML = "";
+  Object.keys(byType).sort().forEach(type => {
+    const { anomalie, total } = byType[type];
+    const pct = total ? (anomalie / total * 100).toFixed(1) : "0.0";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${type}</td><td>${anomalie} / ${total}</td><td>${pct}%</td>`;
+    typeTbody.appendChild(tr);
+  });
+
+  // 3. Nouvelles anomalies (7 derniers jours) - anomalie AND dernière
+  // remontée datant de moins de 7 jours (168h). Simple liste, comme demandé.
+  const newAnomalies = allVehicles.filter(v =>
+    v.status === "anomalie" && v.hours_since_last_seen !== null && v.hours_since_last_seen <= 7 * 24
+  );
+  document.getElementById("stats-new-summary").textContent =
+    `${newAnomalies.length} véhicule(s) en anomalie depuis moins de 7 jours.`;
+  document.getElementById("stats-new-list").textContent =
+    newAnomalies.length ? newAnomalies.map(v => v.num_parc).join(", ") : "—";
+
+  // 4. Anomalies qui traînent (> 30 jours) - depuis l'endpoint dédié
+  // /api/stats/lingering (fenêtre 30-60j, vérification approfondie).
+  if (lingeringVehicles === null) {
+    document.getElementById("stats-lingering-summary").textContent =
+      "Pas encore chargé - cliquez sur \"Rafraîchir\" sur cet onglet.";
+    document.getElementById("stats-lingering-list").textContent = "";
+  } else {
+    document.getElementById("stats-lingering-summary").textContent =
+      `${lingeringVehicles.length} véhicule(s) en anomalie depuis plus de 30 jours.`;
+    document.getElementById("stats-lingering-list").textContent =
+      lingeringVehicles.length ? lingeringVehicles.join(", ") : "—";
+  }
+
+  // 5. Durée moyenne des anomalies actuelles - estimation basée sur
+  // "depuis quand n'a-t-on plus de bon signal", moins le seuil de 48h.
+  // Les véhicules sans date connue (aucune donnée) ne peuvent pas être
+  // moyennés numériquement - ils sont exclus de ce calcul uniquement.
+  const durations = allVehicles
+    .filter(v => v.status === "anomalie" && v.hours_since_last_seen !== null)
+    .map(v => Math.max(0, (v.hours_since_last_seen - 48) / 24));
+  if (durations.length > 0) {
+    const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+    document.getElementById("stats-avg-duration").textContent =
+      `${avg.toFixed(1)} jour(s) en moyenne, sur ${durations.length} véhicule(s) en anomalie avec une date connue (estimation).`;
+  } else {
+    document.getElementById("stats-avg-duration").textContent =
+      "Aucune anomalie en cours avec une durée calculable.";
+  }
+}
+
 // ---------- Navigation par onglets ----------
 
 function switchTab(tabId) {
@@ -583,6 +691,8 @@ document.getElementById("sae-gps-history-btn").addEventListener("click", loadSae
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
 document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));
 document.getElementById("tab-btn-sae-gps").addEventListener("click", () => switchTab("sae-gps-view"));
+document.getElementById("tab-btn-stats").addEventListener("click", () => switchTab("stats-view"));
+document.getElementById("stats-refresh-btn").addEventListener("click", loadStats);
 
 document.getElementById("detail-search-btn").addEventListener("click", searchVehicleFromInput);
 document.getElementById("detail-vehicle-input").addEventListener("keydown", (e) => {
