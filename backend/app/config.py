@@ -4,24 +4,54 @@
 #  logic.
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
+
+from app.secure_credentials import (
+    credentials_files_available, load_key, decrypt_credentials,
+    DEFAULT_CREDENTIALS_FILE, DEFAULT_KEY_FILE,
+)
+
+## Path to the .env file expected in the backend/ directory.
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 load_dotenv()
 
-## Hostname or IP address of the PostgreSQL server.
-DB_HOST = os.getenv("DB_HOST")
-## PostgreSQL port.
-DB_PORT = os.getenv("DB_PORT", "5432")
-## Name of the database to connect to.
-DB_NAME = os.getenv("DB_NAME")
-## Database user name.
-DB_USER = os.getenv("DB_USER")
-## Database user password.
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+if credentials_files_available():
+    # Deployment mode: credentials come from an encrypted file + a
+    # separate key file (see generate_credentials.py) - takes priority
+    # over .env whenever both are present.
+    _credentials = decrypt_credentials(load_key(DEFAULT_KEY_FILE), DEFAULT_CREDENTIALS_FILE)
+    DB_HOST = _credentials.get("DB_HOST")
+    DB_PORT = _credentials.get("DB_PORT", "5432")
+    DB_NAME = _credentials.get("DB_NAME")
+    DB_USER = _credentials.get("DB_USER")
+    DB_PASSWORD = _credentials.get("DB_PASSWORD")
+elif ENV_FILE.exists():
+    ## Hostname or IP address of the PostgreSQL server.
+    DB_HOST = os.getenv("DB_HOST")
+    ## PostgreSQL port.
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    ## Name of the database to connect to.
+    DB_NAME = os.getenv("DB_NAME")
+    ## Database user name.
+    DB_USER = os.getenv("DB_USER")
+    ## Database user password.
+    DB_PASSWORD = os.getenv("DB_PASSWORD")
+else:
+    # Neither source is available: the tool cannot connect to the
+    # database. The message stays simple and non-technical on purpose -
+    # the person seeing it is a maintainer using the tool, not a
+    # developer, and has no way to act on setup instructions.
+    raise RuntimeError("Impossible de se connecter à la base de données.")
 
 ## If true, data access functions read from local sample CSV files instead
-#  of opening a real database connection.
-USE_SAMPLE_DATA = os.getenv("USE_SAMPLE_DATA", "true").lower() == "true"
+#  of connecting to the real database. Read from .env (never committed to
+#  Git - see .gitignore), defaulting to "false" when unset or when there
+#  is no .env at all - so a maintainer's deployment (no .env, credentials
+#  come from the encrypted files instead) never ends up in sample-data
+#  mode by accident.
+USE_SAMPLE_DATA = os.getenv("USE_SAMPLE_DATA", "false").lower() == "true"
 
 ## Number of days to look back when querying "metrics" and "door_counts",
 #  used both to bound anomaly-detection windows and as the maximum

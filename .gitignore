@@ -1,6 +1,9 @@
 # Environment variables - contains real BDD3 credentials, must NEVER be committed
 .env
 
+# Key to decrypt credentials.enc.json
+credentials.key
+
 # Python
 venv/
 __pycache__/
