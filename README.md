@@ -25,7 +25,7 @@ Cette architecture, aussi fiable soit-elle, nécessite un suivi technique régul
 2. **Détection automatique des anomalies**
    - Anomalie véhicule : aucune remontée WEBOX depuis plus de 2 jours
    - Anomalie porte : un capteur EYES silencieux alors que les autres portes du même véhicule remontent des données
-   - (à venir) Incohérence de remontée et anomalie de position GPS
+   - Anomalie trame SAE et anomalie GPS
 
 3. **Aide à l'intervention terrain**
    - Rappel automatique du cas correspondant dans la procédure de maintenance Webreathe (WEBOX / EYES)
@@ -47,6 +47,9 @@ Cette architecture, aussi fiable soit-elle, nécessite un suivi technique régul
 - ✅ Historique des remontées filtrable par période (fenêtre de données limitée à 1 mois)
 - ✅ Détection d'anomalie SAE et GPS
 - ✅ Distinction entre véhicule réellement en panne et véhicule hors exploitation
+- ✅ Chiffrement des identifiants BDD3 pour un déploiement sans fichier `.env`
+- ✅ Script de déploiement temporaire sur un PC local (Windows, sans droits admin)
+- ⏳ Page d'accueil
 - ⏳ Onglet statistiques pour les mainteneurs (état du parc, répartition par type, nouvelles anomalies, anomalies qui traînent, durée des anomalies)
 - ⏳ Authentification
 - ⏳ Déploiement sur serveur
@@ -78,14 +81,20 @@ passenger-counting-supervision/
 │   │   ├── config.py                # Chargement des identifiants + seuils d'anomalie
 │   │   ├── database.py              # Connexion BDD3 + repli sur données d'exemple
 │   │   ├── fleet_reference.py       # Référence matériel roulant (type, portes, numérotation)
-│   │   └── main.py                  # Point d'entrée, sert aussi le frontend
+│   │   ├── main.py                  # Point d'entrée, sert aussi le frontend
+│   │   └── secure_credentials.py    # Chiffrement/déchiffrement des identifiants BDD3
 │   ├── .env.example                 # Modèle pour les identifiants (à copier en .env)
+│   ├── generate_credentials.py      # Génère credentials.enc.json + credentials.key depuis .env
 │   └── requirements.txt
 │
 ├── data/                            # Données d'exemple pour développer sans accès BDD3
 │   ├── rolling_stock_ranges.json    # Plages de numéros -> type de matériel roulant et portes
 │   ├── sample_door_counts.csv
 │   └── sample_metrics.csv
+│
+├── deploy/                          # Déploiement temporaire sur un PC local
+│   ├── launch.bat                   # Script de déploiement (clone/update, installe, lance)
+│   └── README.md                    # Préparation de la clé USB de déploiement
 │
 ├── frontend/                        # Interface web (HTML / CSS / JS, sans framework)
 │   ├── app.js
@@ -103,7 +112,7 @@ passenger-counting-supervision/
 
 ### Prérequis
 
-- Python 3.14 (ou version ultérieure)
+- Python 3.12 (ou version ultérieure)
 - Accès à la base de données **BDD3** (identifiants à demander à la DSI / visibles dans DBeaver)
 
 ### Installation
@@ -135,10 +144,16 @@ La documentation interactive de l'API est disponible sur **http://127.0.0.1:8000
 
 ---
 
+## Déploiement temporaire sur un PC local
+
+Un script (`deploy/launch.bat`) permet de déployer l'outil sur un autre PC Windows sans intervention manuelle (installation de Python/Git si absents, récupération du projet, lancement). Voir `deploy/README.md` pour la préparation de la clé USB de déploiement.
+
+---
+
 ## Pile technique
 
 ### Backend
-- **Python 3.14** + **FastAPI** — API REST
+- **Python 3.12** + **FastAPI** — API REST
 - **psycopg2** — connexion PostgreSQL à BDD3
 - **pandas** — calcul des indicateurs et détection d'anomalie
 
@@ -160,3 +175,5 @@ Ce projet s'appuie sur les documents internes suivants :
 ## Sécurité
 
 Le fichier `.env` contient des identifiants de connexion réels à BDD3. Il est exclu du suivi Git via `.gitignore` et ne doit **jamais** être partagé, ni ajouté manuellement à un commit.
+
+Pour un déploiement sans `.env` (voir `deploy/README.md`), les identifiants sont chiffrés dans `credentials.enc.json` (committable, illisible sans la clé) et déchiffrés à l'aide de `credentials.key`, qui n'est jamais versionné et doit être transmis séparément.
