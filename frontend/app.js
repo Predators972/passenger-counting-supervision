@@ -222,13 +222,22 @@ function renderVehicleTable() {
 
   rows.forEach(v => {
       const doorsDown = v.door_count_total - v.door_count_functional;
+      const doorsClass = v.status_warning ? 'status-warning' : (doorsDown > 0 ? 'status-anomaly' : 'status-ok');
+
+      let exploitationClass = '';
+      if (v.status_warning) {
+        exploitationClass = 'status-warning';
+      } else if (v.status === 'anomalie' && v.exploitation_case === 'unknown') {
+        exploitationClass = 'status-anomaly';
+      }
+
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${v.num_parc}</td>
         <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
-        <td>${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
-        <td class="${doorsDown > 0 ? 'status-anomaly' : 'status-ok'}">${doorsDown} / ${v.door_count_total}</td>
-        <td class="${v.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
+        <td class="${exploitationClass}">${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
+        <td class="${doorsClass}">${doorsDown} / ${v.door_count_total}</td>
+        <td class="${v.status === 'anomalie' ? 'status-anomaly' : (v.status_warning ? 'status-warning' : 'status-ok')}">
           ${v.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
         </td>
       `;

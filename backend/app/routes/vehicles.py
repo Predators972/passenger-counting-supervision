@@ -40,7 +40,10 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
     @return JSON object with a "vehicles" list; each entry has num_parc,
     last_seen, hours_since_last_seen, last_exploitation,
     hours_since_last_exploitation, exploitation_case, status,
-    rolling_stock_category, rolling_stock_type, door_count_functional, door_count_total.
+    rolling_stock_category, rolling_stock_type, door_count_functional,
+    door_count_total, status_warning (true when a vehicle not seen in
+    commercial service for over 30 days has a door with no data at all -
+    shown as "fonctionnel" but flagged for a distinct visual treatment).
     """
     metrics_df = fetch_metrics()
     vehicles = get_vehicle_overview(metrics_df)
@@ -84,8 +87,11 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
             door_last_seen[n] = pd.Timestamp(ts) if pd.notna(ts) else None
 
         door_count_functional = 0
+        has_missing_door = False
         for n, ts in door_last_seen.items():
             if ts is None:
+                if exploitation_case == "stale":
+                    has_missing_door = True
                 continue
             if exploitation_case == "stale":
                 door_count_functional += 1
@@ -110,7 +116,17 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
             round((now - oldest_door_ts).total_seconds() / 3600, 1) if oldest_door_ts is not None else None
         )
 
-        v["status"] = "anomalie" if door_count_functional < door_count_total else "fonctionnel"
+        if exploitation_case == "stale" and has_missing_door:
+            # A door with zero data at all would normally make the vehicle
+            # "anomalie", but for a vehicle not seen in commercial service
+            # for over 30 days, this is ambiguous rather than a confirmed
+            # fault - shown as "fonctionnel" with a distinct visual warning
+            # instead of a hard anomaly.
+            v["status"] = "fonctionnel"
+            v["status_warning"] = True
+        else:
+            v["status"] = "anomalie" if door_count_functional < door_count_total else "fonctionnel"
+            v["status_warning"] = False
 
     if status:
         vehicles = [v for v in vehicles if v["status"] == status]
