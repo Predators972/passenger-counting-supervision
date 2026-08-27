@@ -179,7 +179,6 @@ async function loadVehicles() {
     const data = await res.json();
     allVehicles = data.vehicles;
 
-    populateTypeFilter();
     renderVehicleTable();
     document.getElementById("last-refresh").textContent =
       "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
@@ -189,23 +188,17 @@ async function loadVehicles() {
 }
 
 /**
- * @brief Rebuild the "Type de véhicule" filter options from the currently
- * loaded fleet data, preserving the previous selection when still valid.
+ * @brief Check whether a vehicle matches the selected category filter.
+ * "TaM" is a special value meaning every category except "Bus SUBURBAIN".
+ * @param vehicle Vehicle entry with a rolling_stock_category field.
+ * @param filterValue Selected filter value ("", "TaM", or an exact
+ * category name).
+ * @return True if the vehicle matches the filter.
  */
-function populateTypeFilter() {
-  const select = document.getElementById("type-filter");
-  const previousValue = select.value;
-  const types = [...new Set(allVehicles.map(v => v.rolling_stock_type))].sort();
-
-  select.innerHTML = '<option value="">Tous</option>';
-  types.forEach(type => {
-    const option = document.createElement("option");
-    option.value = type;
-    option.textContent = type;
-    select.appendChild(option);
-  });
-
-  if (types.includes(previousValue)) select.value = previousValue;
+function matchesCategoryFilter(vehicle, filterValue) {
+  if (!filterValue) return true;
+  if (filterValue === "TaM") return vehicle.rolling_stock_category !== "Bus SUBURBAIN";
+  return vehicle.rolling_stock_category === filterValue;
 }
 
 /**
@@ -221,7 +214,7 @@ function renderVehicleTable() {
 
   let rows = allVehicles
     .filter(v => !statusFilter || v.status === statusFilter)
-    .filter(v => !typeFilter || v.rolling_stock_type === typeFilter)
+    .filter(v => matchesCategoryFilter(v, typeFilter))
     .filter(v => !search || String(v.num_parc).includes(search));
 
   rows = applySort(rows, globalSortState, globalKeyGetters);
@@ -518,7 +511,6 @@ async function loadSaeGpsAnomalies() {
     const data = await res.json();
     allSaeGpsVehicles = data.vehicles;
 
-    populateSaeGpsTypeFilter();
     renderSaeGpsTables();
 
     document.getElementById("sae-gps-last-refresh").textContent =
@@ -526,27 +518,6 @@ async function loadSaeGpsAnomalies() {
 
     renderStats();
   });
-}
-
-/**
- * @brief Rebuild the SAE/GPS "Type de véhicule" filter options from the
- * currently loaded data, preserving the previous selection when still
- * valid.
- */
-function populateSaeGpsTypeFilter() {
-  const select = document.getElementById("sae-gps-type-filter");
-  const previousValue = select.value;
-  const types = [...new Set(allSaeGpsVehicles.map(v => v.rolling_stock_type))].sort();
-
-  select.innerHTML = '<option value="">Tous</option>';
-  types.forEach(type => {
-    const option = document.createElement("option");
-    option.value = type;
-    option.textContent = type;
-    select.appendChild(option);
-  });
-
-  if (types.includes(previousValue)) select.value = previousValue;
 }
 
 const saeSortState = { column: "num_parc", direction: "asc" };
@@ -594,7 +565,7 @@ function getFilteredSaeGpsVehicles(field) {
 
   return allSaeGpsVehicles
     .filter(v => !statusFilter || v[field].status === statusFilter)
-    .filter(v => !typeFilter || v.rolling_stock_type === typeFilter)
+    .filter(v => matchesCategoryFilter(v, typeFilter))
     .filter(v => !search || String(v.num_parc).includes(search));
 }
 
@@ -759,12 +730,14 @@ function renderStats() {
   document.getElementById("stats-doors-summary").textContent =
     `Portes en anomalie : ${anomalieDoors} / ${totalDoors} (${pctDoors}%)`;
 
-  // 2. Breakdown by vehicle type
+  // 2. Breakdown by vehicle type - Bus SUBURBAIN subtypes are merged into
+  // a single row (too many distinct models to list individually here)
   const byType = {};
   allVehicles.forEach(v => {
-    if (!byType[v.rolling_stock_type]) byType[v.rolling_stock_type] = { anomalie: 0, total: 0 };
-    byType[v.rolling_stock_type].total++;
-    if (v.status === "anomalie") byType[v.rolling_stock_type].anomalie++;
+    const key = v.rolling_stock_category === "Bus SUBURBAIN" ? "Bus SUBURBAIN" : v.rolling_stock_type;
+    if (!byType[key]) byType[key] = { anomalie: 0, total: 0 };
+    byType[key].total++;
+    if (v.status === "anomalie") byType[key].anomalie++;
   });
   const typeTbody = document.querySelector("#stats-type-table tbody");
   typeTbody.innerHTML = "";

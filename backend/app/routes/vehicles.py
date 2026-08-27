@@ -40,7 +40,7 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
     @return JSON object with a "vehicles" list; each entry has num_parc,
     last_seen, hours_since_last_seen, last_exploitation,
     hours_since_last_exploitation, exploitation_case, status,
-    rolling_stock_type, door_count_functional, door_count_total.
+    rolling_stock_category, rolling_stock_type, door_count_functional, door_count_total.
     """
     metrics_df = fetch_metrics()
     vehicles = get_vehicle_overview(metrics_df)
@@ -48,7 +48,9 @@ def list_vehicles(status: str | None = Query(default=None, description="fonction
     vehicles = [v for v in vehicles if is_known_vehicle(v["num_parc"])]
 
     for v in vehicles:
-        v["rolling_stock_type"] = get_rolling_stock(v["num_parc"])["type"]
+        rolling_stock = get_rolling_stock(v["num_parc"])
+        v["rolling_stock_category"] = rolling_stock["category"]
+        v["rolling_stock_type"] = f"{rolling_stock['category']} - {rolling_stock['type']}"
 
     now = utc_now()
 
@@ -180,7 +182,7 @@ def get_vehicle_detail(num_parc: int):
         "last_exploitation": to_local_iso(last_exploitation),
         "hours_since_last_exploitation": round(last_exploitation_hours, 1) if last_exploitation_hours is not None else None,
         "exploitation_case": exploitation_case,
-        "rolling_stock_type": rolling_stock["type"] if rolling_stock else "Type inconnu (non configuré)",
+        "rolling_stock_type": f"{rolling_stock['category']} - {rolling_stock['type']}" if rolling_stock else "Type inconnu (non configuré)",
         "door_count_functional": functional_count,
         "door_count_total": len(doors),
         "doors": doors,
@@ -271,7 +273,7 @@ def list_vehicles_sae_gps():
 
     @return JSON object with a "vehicles" list; each entry has num_parc,
     last_seen, hours_since_last_seen, last_exploitation,
-    hours_since_last_exploitation, exploitation_case, rolling_stock_type,
+    hours_since_last_exploitation, exploitation_case, rolling_stock_category, rolling_stock_type,
     sae and gps (status dicts as returned by anomaly.get_sae_gps_status).
     """
     metrics_df = fetch_metrics_sae_gps()
@@ -279,7 +281,9 @@ def list_vehicles_sae_gps():
 
     vehicles = [v for v in vehicles if is_known_vehicle(v["num_parc"])]
     for v in vehicles:
-        v["rolling_stock_type"] = get_rolling_stock(v["num_parc"])["type"]
+        rolling_stock = get_rolling_stock(v["num_parc"])
+        v["rolling_stock_category"] = rolling_stock["category"]
+        v["rolling_stock_type"] = f"{rolling_stock['category']} - {rolling_stock['type']}"
 
     return {"vehicles": vehicles}
 

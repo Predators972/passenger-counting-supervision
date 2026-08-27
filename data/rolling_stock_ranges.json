@@ -2,14 +2,16 @@
   {
     "range_start": 2001,
     "range_end": 2030,
-    "type": "Tramway CITADIS 401",
+    "category": "Tramways",
+    "type": "CITADIS 401",
     "door_scheme": "tram_401_402_urbos",
     "door_count": 16
   },
   {
     "range_start": 2031,
     "range_end": 2069,
-    "type": "Tramway CITADIS 302",
+    "category": "Tramways",
+    "type": "CITADIS 302",
     "door_scheme": "tram_302",
     "door_count": null,
     "minimum_doors": 12
@@ -17,37 +19,294 @@
   {
     "range_start": 2070,
     "range_end": 2099,
-    "type": "Tramway CITADIS 402",
+    "category": "Tramways",
+    "type": "CITADIS 402",
     "door_scheme": "tram_401_402_urbos",
     "door_count": 16
   },
   {
     "range_start": 2100,
     "range_end": 2199,
-    "type": "Tramway CAF URBOS",
+    "category": "Tramways",
+    "type": "CAF URBOS",
     "door_scheme": "tram_401_402_urbos",
     "door_count": 16
   },
   {
-    "range_start": 100,
-    "range_end": 699,
-    "type": "Bus gaz",
+    "range_start": 160,
+    "range_end": 201,
+    "category": "Bus URBAIN",
+    "type": "CITELIS",
     "door_scheme": "bus",
     "door_count": null,
     "minimum_doors": 2
   },
   {
-    "range_start": 700,
+    "range_start": 202,
+    "range_end": 300,
+    "category": "Bus URBAIN",
+    "type": "URBANWAY",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 701,
     "range_end": 730,
-    "type": "Bustram électrique",
+    "category": "Bus URBAIN",
+    "type": "BUSTRAM",
     "door_scheme": "bus",
     "door_count": null,
     "minimum_doors": 3
   },
   {
     "range_start": 731,
-    "range_end": 1000,
-    "type": "Bus gaz",
+    "range_end": 733,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 735,
+    "range_end": 736,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 761,
+    "range_end": 764,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 766,
+    "range_end": 768,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 770,
+    "range_end": 770,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 780,
+    "range_end": 780,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 782,
+    "range_end": 782,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 327",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 661,
+    "range_end": 663,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 337",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 791,
+    "range_end": 791,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 337",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 793,
+    "range_end": 793,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 337",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 806,
+    "range_end": 806,
+    "category": "Bus SUBURBAIN",
+    "type": "HEULIEZ GX 337",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 910,
+    "range_end": 910,
+    "category": "Bus SUBURBAIN",
+    "type": "IRISBUS CITELIS",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 746,
+    "range_end": 749,
+    "category": "Bus SUBURBAIN",
+    "type": "IRISBUS CROSSWAY",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 654,
+    "range_end": 654,
+    "category": "Bus SUBURBAIN",
+    "type": "IRISBUS CROSSWAY LE Line",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 676,
+    "range_end": 677,
+    "category": "Bus SUBURBAIN",
+    "type": "IVECO CITELIS",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 680,
+    "range_end": 680,
+    "category": "Bus SUBURBAIN",
+    "type": "IVECO CROSSWAY LE",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 697,
+    "range_end": 698,
+    "category": "Bus SUBURBAIN",
+    "type": "IVECO CROSSWAY LE",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 809,
+    "range_end": 810,
+    "category": "Bus SUBURBAIN",
+    "type": "IVECO CROSSWAY LE",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 906,
+    "range_end": 909,
+    "category": "Bus SUBURBAIN",
+    "type": "IVECO CROSSWAY LE",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 655,
+    "range_end": 659,
+    "category": "Bus SUBURBAIN",
+    "type": "MERCEDES CITARO C2 Hybrid",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 642,
+    "range_end": 650,
+    "category": "Bus SUBURBAIN",
+    "type": "MERCEDES CITARO FACELIFT",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 653,
+    "range_end": 653,
+    "category": "Bus SUBURBAIN",
+    "type": "MERCEDES CITARO FACELIFT",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 660,
+    "range_end": 660,
+    "category": "Bus SUBURBAIN",
+    "type": "MERCEDES CITARO FACELIFT",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 630,
+    "range_end": 635,
+    "category": "Bus SUBURBAIN",
+    "type": "Mercedes Conecto",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 840,
+    "range_end": 857,
+    "category": "Bus SUBURBAIN",
+    "type": "SCANIA CITYWIDE LE",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 807,
+    "range_end": 808,
+    "category": "Bus SUBURBAIN",
+    "type": "SETRA EVOBUS S 415 NF",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 811,
+    "range_end": 811,
+    "category": "Bus SUBURBAIN",
+    "type": "SETRA EVOBUS S 415 NF",
+    "door_scheme": "bus",
+    "door_count": null,
+    "minimum_doors": 2
+  },
+  {
+    "range_start": 741,
+    "range_end": 741,
+    "category": "Bus SUBURBAIN",
+    "type": "SOLARIS URBINO 12",
     "door_scheme": "bus",
     "door_count": null,
     "minimum_doors": 2

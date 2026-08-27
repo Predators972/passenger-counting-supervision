@@ -66,9 +66,9 @@ def get_rolling_stock(num_parc):
     number.
 
     @param num_parc Vehicle number (any type convertible to int).
-    @return Dict with keys type (str), door_count (int or None),
-    door_scheme (str or None), minimum_doors (int, defaults to 0); or None
-    if num_parc is not convertible to int or falls outside every
+    @return Dict with keys category (str), type (str), door_count (int or
+    None), door_scheme (str or None), minimum_doors (int, defaults to 0);
+    or None if num_parc is not convertible to int or falls outside every
     configured range.
     """
     global _ranges_cache
@@ -83,6 +83,7 @@ def get_rolling_stock(num_parc):
     for entry in _ranges_cache:
         if entry["range_start"] <= num_parc <= entry["range_end"]:
             return {
+                "category": entry["category"],
                 "type": entry["type"],
                 "door_count": entry.get("door_count"),
                 "door_scheme": entry.get("door_scheme"),
