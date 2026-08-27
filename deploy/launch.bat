@@ -58,8 +58,21 @@ if not exist "%PROJECT_DIR%" (
     popd
 )
 
+if not exist "%~dp0credentials.key" (
+    echo.
+    echo credentials.key introuvable a cote de launch.bat.
+    pause
+    exit /b 1
+)
+
 echo Copie de la cle de dechiffrement...
 copy /Y "%~dp0credentials.key" "%PROJECT_DIR%\backend\credentials.key" >nul
+if errorlevel 1 (
+    echo.
+    echo Echec de la copie de la cle de dechiffrement.
+    pause
+    exit /b 1
+)
 
 set VENV_DIR=%PROJECT_DIR%\backend\venv
 
@@ -91,6 +104,14 @@ set RUN_SCRIPT=%TEMP%\run_supervision.bat
 start "Supervision comptage voyageurs" cmd /k "%RUN_SCRIPT%"
 
 timeout /t 4 /nobreak >nul
-start "" http://127.0.0.1:8000
+set CHROME_PATH="C:\Program Files\Google\Chrome\Application\chrome.exe"
+if not exist %CHROME_PATH% set CHROME_PATH="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+if not exist %CHROME_PATH% set CHROME_PATH="%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
+
+if exist %CHROME_PATH% (
+    start "" %CHROME_PATH% http://127.0.0.1:8000
+) else (
+    start "" http://127.0.0.1:8000
+)
 
 endlocal
