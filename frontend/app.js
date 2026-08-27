@@ -276,9 +276,13 @@ function formatDuration(hours, precise) {
     return `il y a ${minutes} min`;
   }
   if (hours < 1) return "il y a moins d'1 heure";
-  if (hours < 48) return `depuis ${Math.floor(hours)} h`;
+  if (hours <= 24) return `depuis ${Math.floor(hours)} h`;
+
   const days = Math.floor(hours / 24);
-  return `depuis ${days} jour${days > 1 ? "s" : ""}`;
+  if (hours > 24 * 7) return `depuis ${days} jour${days > 1 ? "s" : ""}`;
+
+  const remainderHours = Math.floor(hours % 24);
+  return `depuis ${days} jour${days > 1 ? "s" : ""} ${remainderHours} h`;
 }
 
 /**
