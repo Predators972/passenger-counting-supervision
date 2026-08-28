@@ -523,13 +523,15 @@ function renderVehicleDetail(data) {
   populateHistoryDoorFilter(data.doors);
 
   const expText = document.getElementById("last-exploitation-text");
+  expText.classList.remove("status-anomaly");
   if (data.exploitation_case === "stale") {
     expText.textContent = "Dernier service commercial : depuis plus de 30 jours (véhicule vu au dépôt sur la période, mais pas en service).";
   } else if (data.last_exploitation) {
     expText.textContent =
       `Dernier service commercial : ${formatDate(data.last_exploitation)} (${formatDuration(data.hours_since_last_exploitation)})`;
   } else {
-    expText.textContent = "Dernier service commercial : aucune donnée d'exploitation trouvée sur la période chargée.";
+    expText.textContent = "⚠ Dernier service commercial : aucune donnée d'exploitation trouvée sur la période chargée.";
+    expText.classList.add("status-anomaly");
   }
 
   const grid = document.getElementById("door-grid");
