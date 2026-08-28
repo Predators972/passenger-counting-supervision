@@ -890,9 +890,11 @@ function computeCombinedVehicleAnomalies() {
   allVehicles.forEach(v => {
     map[v.num_parc] = map[v.num_parc] || {
       category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
+      hasDoorAnomaly: false, hasSaeAnomaly: false, hasGpsAnomaly: false,
     };
     if (v.status === "anomalie") {
       map[v.num_parc].hasAnomaly = true;
+      map[v.num_parc].hasDoorAnomaly = true;
       map[v.num_parc].ageHours = v.hours_since_last_seen;
     }
   });
@@ -900,12 +902,15 @@ function computeCombinedVehicleAnomalies() {
   allSaeGpsVehicles.forEach(v => {
     map[v.num_parc] = map[v.num_parc] || {
       category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
+      hasDoorAnomaly: false, hasSaeAnomaly: false, hasGpsAnomaly: false,
     };
     const saeAnomaly = v.sae.status === "anomalie";
     const gpsAnomaly = v.gps.status === "anomalie";
     if (!saeAnomaly && !gpsAnomaly) return;
 
     map[v.num_parc].hasAnomaly = true;
+    if (saeAnomaly) map[v.num_parc].hasSaeAnomaly = true;
+    if (gpsAnomaly) map[v.num_parc].hasGpsAnomaly = true;
     const ages = [];
     if (saeAnomaly && v.sae.hours_since_last_seen !== null) ages.push(v.sae.hours_since_last_seen);
     if (gpsAnomaly && v.gps.hours_since_last_seen !== null) ages.push(v.gps.hours_since_last_seen);
@@ -1017,6 +1022,16 @@ function renderStats() {
   const pctVehicles = totalVehicles ? (anomalieVehicles / totalVehicles * 100).toFixed(1) : "0.0";
   document.getElementById("stats-vehicles-summary").textContent =
     `Véhicules en anomalie : ${anomalieVehicles} / ${totalVehicles} (${pctVehicles}%)`;
+
+  const doorAnomalyCount = entries.filter(e => e.hasDoorAnomaly).length;
+  const saeAnomalyCount = entries.filter(e => e.hasSaeAnomaly).length;
+  const gpsAnomalyCount = entries.filter(e => e.hasGpsAnomaly).length;
+  const pct = n => anomalieVehicles ? (n / anomalieVehicles * 100).toFixed(1) : "0.0";
+  document.getElementById("stats-anomaly-breakdown").innerHTML =
+    `Dont, parmi ces véhicules en anomalie (un véhicule peut cumuler plusieurs types) :<br>` +
+    `— porte : ${doorAnomalyCount} / ${anomalieVehicles} (${pct(doorAnomalyCount)}%)<br>` +
+    `— SAE : ${saeAnomalyCount} / ${anomalieVehicles} (${pct(saeAnomalyCount)}%)<br>` +
+    `— GPS : ${gpsAnomalyCount} / ${anomalieVehicles} (${pct(gpsAnomalyCount)}%)`;
 
   const totalDoors = allVehicles.reduce((sum, v) => sum + v.door_count_total, 0);
   const anomalieDoors = allVehicles.reduce((sum, v) => sum + (v.door_count_total - v.door_count_functional), 0);
