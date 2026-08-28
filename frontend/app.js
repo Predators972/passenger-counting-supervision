@@ -768,13 +768,14 @@ function renderFieldTable(tableId, vehicles, field) {
 
   vehicles.forEach(v => {
     const info = v[field];
+    const exploitationClass = info.status_warning ? 'status-warning' : '';
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${v.num_parc}</td>
       <td>${formatDate(v.last_seen)}<br><small>${formatDuration(v.hours_since_last_seen)}</small></td>
-      <td>${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
+      <td class="${exploitationClass}">${formatExploitation(v.last_exploitation, v.hours_since_last_exploitation, v.exploitation_case)}</td>
       <td>${info.missing_ratio}%</td>
-      <td class="${info.status === 'anomalie' ? 'status-anomaly' : 'status-ok'}">
+      <td class="${info.status === 'anomalie' ? 'status-anomaly' : (info.status_warning ? 'status-warning' : 'status-ok')}">
         ${info.status === 'anomalie' ? 'Anomalie' : 'Fonctionnel'}
       </td>
     `;

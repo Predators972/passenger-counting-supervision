@@ -225,7 +225,7 @@ def get_door_status_for_vehicle(
     return results
 
 
-def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float, force_fonctionnel: bool = False):
+def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Series, silence_threshold: float, ratio_threshold: float, exploitation_case: str, force_fonctionnel: bool = False):
     """!
     @brief Compute the status of a single field (SAE or GPS) for one
     vehicle, combining a silence check and a missing-ratio check.
@@ -240,10 +240,14 @@ def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Ser
     which the field is considered silent.
     @param ratio_threshold Maximum acceptable share (0-1) of rows missing
     the field before it is considered degraded.
+    @param exploitation_case One of "known", "stale", "unknown", as
+    returned by get_exploitation_case for this vehicle.
     @param force_fonctionnel When true, the field is always reported
     "fonctionnel" regardless of the two checks above.
     @return Dict with keys last_seen, hours_since_last_seen (relative to
-    now), missing_ratio (percentage), status.
+    now), missing_ratio (percentage), status, status_warning (true when
+    reported "fonctionnel" despite an unclear exploitation reference,
+    solely because the missing ratio is low enough to be trustworthy).
     """
     total_rows = len(group)
     missing_ratio = 1 - (present_mask.sum() / total_rows) if total_rows else 1.0
@@ -257,8 +261,17 @@ def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Ser
         hours_behind_reference = None
         hours_since_now = None
 
+    status_warning = False
     if force_fonctionnel:
         status = "fonctionnel"
+    elif exploitation_case == "unknown" and missing_ratio <= ratio_threshold:
+        # No reliable exploitation reference to judge recency against (no
+        # "now" fallback comparison is trustworthy here), but the field
+        # itself is present often enough over the window to be considered
+        # fine on its own - reported "fonctionnel" with a visual warning
+        # instead of a hard anomaly.
+        status = "fonctionnel"
+        status_warning = True
     else:
         is_silent = last_present is None or (hours_behind_reference is not None and hours_behind_reference > silence_threshold)
         is_degraded = missing_ratio > ratio_threshold
@@ -269,6 +282,7 @@ def _field_status(group: pd.DataFrame, now, reference_time, present_mask: pd.Ser
         "hours_since_last_seen": round(hours_since_now, 1) if hours_since_now is not None else None,
         "missing_ratio": round(missing_ratio * 100, 1),
         "status": status,
+        "status_warning": status_warning,
     }
 
 
@@ -307,8 +321,8 @@ def get_sae_gps_status(metrics_df: pd.DataFrame, now: datetime = None) -> list[d
         sae_present = group["num_parc_sae"].notna()
         gps_present = group["latitude"].notna() & group["longitude"].notna()
 
-        sae = _field_status(group, now, reference_time, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD, force_fonctionnel=force_fonctionnel)
-        gps = _field_status(group, now, reference_time, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD, force_fonctionnel=force_fonctionnel)
+        sae = _field_status(group, now, reference_time, sae_present, SAE_SILENCE_THRESHOLD_HOURS, SAE_MISSING_RATIO_THRESHOLD, exploitation_case, force_fonctionnel=force_fonctionnel)
+        gps = _field_status(group, now, reference_time, gps_present, GPS_SILENCE_THRESHOLD_HOURS, GPS_MISSING_RATIO_THRESHOLD, exploitation_case, force_fonctionnel=force_fonctionnel)
 
         results.append({
             "num_parc": num_parc,
