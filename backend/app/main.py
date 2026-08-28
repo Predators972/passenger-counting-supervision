@@ -6,12 +6,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from app.routes import vehicles, stats
+from app.routes import vehicles
 
 app = FastAPI(title="Outil de supervision - comptage voyageurs")
 
 app.include_router(vehicles.router)
-app.include_router(stats.router)
 
 ## Directory containing the front-end static files (HTML/CSS/JS).
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"

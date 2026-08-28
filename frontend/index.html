@@ -253,14 +253,7 @@
 
     <!-- Statistics -->
     <section id="stats-view" class="tab-panel">
-      <div class="toolbar">
-        <button id="stats-refresh-btn" disabled>Rafraîchir</button>
-        <span id="stats-refresh-spinner" class="spinner hidden"></span>
-        <span id="stats-refresh-timer" class="timer"></span>
-        <span id="stats-last-refresh"></span>
-      </div>
-
-      <p id="stats-placeholder">Cet onglet est en cours de développement — pas encore disponible.</p>
+      <p id="stats-placeholder">Rafraîchissez la vue globale ET les anomalies SAE/GPS (les deux sont nécessaires) pour voir les statistiques, ou rafraîchissez simplement la page d'accueil qui fait les deux en même temps.</p>
 
       <div id="stats-content" class="hidden">
         <h3>1. État du parc</h3>
@@ -279,15 +272,7 @@
           <tbody></tbody>
         </table>
 
-        <h3>3. Nouvelles anomalies (7 derniers jours)</h3>
-        <p id="stats-new-summary"></p>
-        <p id="stats-new-list"></p>
-
-        <h3>4. Anomalies qui traînent (plus de 30 jours)</h3>
-        <p id="stats-lingering-summary"></p>
-        <p id="stats-lingering-list"></p>
-
-        <h3>5. Durée moyenne des anomalies actuelles</h3>
+        <h3>3. Durée moyenne des anomalies actuelles</h3>
         <p id="stats-avg-duration"></p>
       </div>
     </section>

@@ -352,3 +352,23 @@ button:disabled {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* ---------- Stats: expandable type breakdown table ---------- */
+
+.stats-parent-row {
+  cursor: pointer;
+  font-weight: bold;
+  background: #eef1f4;
+}
+
+.stats-parent-row:hover {
+  background: #e0e5ea;
+}
+
+.stats-child-row td {
+  color: #555;
+}
+
+.stats-child-label {
+  padding-left: 32px;
+}

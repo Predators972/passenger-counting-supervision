@@ -850,47 +850,150 @@ function renderPresenceHistory(listId, reports, presentField) {
 // ---------- Statistics ----------
 
 /**
- * @brief List of lingering-anomaly vehicle numbers fetched from
- * /api/stats/lingering, or null if not fetched yet. Only refreshed by the
- * statistics tab's own "Rafraîchir" button.
+ * @brief Set of category names currently expanded in the "Répartition par
+ * type" table (Bus URBAIN / Tramways). Persists across re-renders within
+ * the session, reset on page load.
  */
-let lingeringVehicles = null;
+const statsExpandedCategories = new Set();
 
 /**
- * @brief Refresh the statistics tab: reloads the global fleet and SAE/GPS
- * data (updating those tabs too), fetches the lingering-anomaly list, and
- * re-renders all five sections.
- * @return Promise that resolves once the statistics have been rendered.
+ * @brief Compute, for every known vehicle, whether it has an anomaly
+ * (door OR SAE OR GPS) and a rough age estimate for that anomaly, purely
+ * from allVehicles and allSaeGpsVehicles already in memory - no network
+ * call.
+ * @return Object mapping num_parc to {category, type, hasAnomaly,
+ * ageHours}.
  */
-async function loadStats() {
-  await withSpinner("stats-refresh-btn", "stats-refresh-spinner", "stats-refresh-timer", async () => {
-    const [, , lingeringRes] = await Promise.all([
-      loadVehicles(),
-      loadSaeGpsAnomalies(),
-      fetch(`${API_BASE}/stats/lingering`),
-    ]);
-    const data = await lingeringRes.json();
-    lingeringVehicles = data.vehicles;
+function computeCombinedVehicleAnomalies() {
+  const map = {};
 
-    renderStats();
-    document.getElementById("stats-last-refresh").textContent =
-      "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+  allVehicles.forEach(v => {
+    map[v.num_parc] = map[v.num_parc] || {
+      category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
+    };
+    if (v.status === "anomalie") {
+      map[v.num_parc].hasAnomaly = true;
+      map[v.num_parc].ageHours = v.hours_since_last_seen;
+    }
+  });
+
+  allSaeGpsVehicles.forEach(v => {
+    map[v.num_parc] = map[v.num_parc] || {
+      category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
+    };
+    const saeAnomaly = v.sae.status === "anomalie";
+    const gpsAnomaly = v.gps.status === "anomalie";
+    if (!saeAnomaly && !gpsAnomaly) return;
+
+    map[v.num_parc].hasAnomaly = true;
+    const ages = [];
+    if (saeAnomaly && v.sae.hours_since_last_seen !== null) ages.push(v.sae.hours_since_last_seen);
+    if (gpsAnomaly && v.gps.hours_since_last_seen !== null) ages.push(v.gps.hours_since_last_seen);
+    if (ages.length === 0) return;
+    const worst = Math.max(...ages);
+    map[v.num_parc].ageHours = map[v.num_parc].ageHours !== null ? Math.max(map[v.num_parc].ageHours, worst) : worst;
+  });
+
+  return map;
+}
+
+/**
+ * @brief Group the combined anomaly map by rolling stock category, with
+ * a per-subtype breakdown for Bus URBAIN and Tramways (Bus SUBURBAIN
+ * stays a single aggregate row - too many distinct models to list
+ * individually).
+ * @param anomalyMap Object as returned by computeCombinedVehicleAnomalies.
+ * @return Object mapping category name to {anomalie, total, children?},
+ * children being a map of subtype name to {anomalie, total}.
+ */
+function computeVehicleTypeBreakdown(anomalyMap) {
+  const breakdown = {};
+
+  Object.values(anomalyMap).forEach(entry => {
+    const { category, type, hasAnomaly } = entry;
+    if (!category) return;
+
+    if (category === "Bus SUBURBAIN") {
+      if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0 };
+      breakdown[category].total++;
+      if (hasAnomaly) breakdown[category].anomalie++;
+      return;
+    }
+
+    const subtype = type.slice(category.length + 3);
+    if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0, children: {} };
+    breakdown[category].total++;
+    if (hasAnomaly) breakdown[category].anomalie++;
+    if (!breakdown[category].children[subtype]) breakdown[category].children[subtype] = { anomalie: 0, total: 0 };
+    breakdown[category].children[subtype].total++;
+    if (hasAnomaly) breakdown[category].children[subtype].anomalie++;
+  });
+
+  return breakdown;
+}
+
+/**
+ * @brief Render the "Répartition par type" table, with Bus URBAIN and
+ * Tramways rows expandable to show their subtypes.
+ * @param breakdown Object as returned by computeVehicleTypeBreakdown.
+ */
+function renderTypeBreakdownTable(breakdown) {
+  const tbody = document.querySelector("#stats-type-table tbody");
+  tbody.innerHTML = "";
+
+  ["Bus URBAIN", "Tramways", "Bus SUBURBAIN"].forEach(category => {
+    const data = breakdown[category];
+    if (!data) return;
+
+    const pct = data.total ? (data.anomalie / data.total * 100).toFixed(1) : "0.0";
+    const tr = document.createElement("tr");
+
+    if (!data.children) {
+      tr.innerHTML = `<td>${category}</td><td>${data.anomalie} / ${data.total}</td><td>${pct}%</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    const expanded = statsExpandedCategories.has(category);
+    tr.className = "stats-parent-row";
+    tr.innerHTML = `<td>${expanded ? "▼" : "▶"} ${category}</td><td>${data.anomalie} / ${data.total}</td><td>${pct}%</td>`;
+    tr.addEventListener("click", () => {
+      if (statsExpandedCategories.has(category)) statsExpandedCategories.delete(category);
+      else statsExpandedCategories.add(category);
+      renderStats();
+    });
+    tbody.appendChild(tr);
+
+    if (!expanded) return;
+    Object.keys(data.children).sort().forEach(subtype => {
+      const child = data.children[subtype];
+      const childPct = child.total ? (child.anomalie / child.total * 100).toFixed(1) : "0.0";
+      const childTr = document.createElement("tr");
+      childTr.className = "stats-child-row";
+      childTr.innerHTML = `<td class="stats-child-label">${subtype}</td><td>${child.anomalie} / ${child.total}</td><td>${childPct}%</td>`;
+      tbody.appendChild(childTr);
+    });
   });
 }
 
 /**
- * @brief Compute and render the five statistics sections from allVehicles
- * and lingeringVehicles. Does nothing if no fleet data has been loaded yet.
+ * @brief Compute and render the statistics tab entirely from allVehicles
+ * and allSaeGpsVehicles already in memory - no network call, no dedicated
+ * refresh action. Does nothing if neither has been loaded yet.
  */
 function renderStats() {
-  if (allVehicles.length === 0) return;
+  if (allVehicles.length === 0 || allSaeGpsVehicles.length === 0) return;
 
   document.getElementById("stats-placeholder").classList.add("hidden");
   document.getElementById("stats-content").classList.remove("hidden");
 
-  // 1. Fleet status
-  const totalVehicles = allVehicles.length;
-  const anomalieVehicles = allVehicles.filter(v => v.status === "anomalie").length;
+  const anomalyMap = computeCombinedVehicleAnomalies();
+  const entries = Object.values(anomalyMap);
+
+  // 1. Fleet status (door + SAE/GPS combined for the vehicle count; doors
+  // themselves stay door-specific, since that's a distinct physical count)
+  const totalVehicles = entries.length;
+  const anomalieVehicles = entries.filter(e => e.hasAnomaly).length;
   const pctVehicles = totalVehicles ? (anomalieVehicles / totalVehicles * 100).toFixed(1) : "0.0";
   document.getElementById("stats-vehicles-summary").textContent =
     `Véhicules en anomalie : ${anomalieVehicles} / ${totalVehicles} (${pctVehicles}%)`;
@@ -901,51 +1004,14 @@ function renderStats() {
   document.getElementById("stats-doors-summary").textContent =
     `Portes en anomalie : ${anomalieDoors} / ${totalDoors} (${pctDoors}%)`;
 
-  // 2. Breakdown by vehicle type - Bus SUBURBAIN subtypes are merged into
-  // a single row (too many distinct models to list individually here)
-  const byType = {};
-  allVehicles.forEach(v => {
-    const key = v.rolling_stock_category === "Bus SUBURBAIN" ? "Bus SUBURBAIN" : v.rolling_stock_type;
-    if (!byType[key]) byType[key] = { anomalie: 0, total: 0 };
-    byType[key].total++;
-    if (v.status === "anomalie") byType[key].anomalie++;
-  });
-  const typeTbody = document.querySelector("#stats-type-table tbody");
-  typeTbody.innerHTML = "";
-  Object.keys(byType).sort().forEach(type => {
-    const { anomalie, total } = byType[type];
-    const pct = total ? (anomalie / total * 100).toFixed(1) : "0.0";
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${type}</td><td>${anomalie} / ${total}</td><td>${pct}%</td>`;
-    typeTbody.appendChild(tr);
-  });
+  // 2. Breakdown by vehicle type
+  renderTypeBreakdownTable(computeVehicleTypeBreakdown(anomalyMap));
 
-  // 3. New anomalies (less than 7 days)
-  const newAnomalies = allVehicles.filter(v =>
-    v.status === "anomalie" && v.hours_since_last_seen !== null && v.hours_since_last_seen <= 7 * 24
-  );
-  document.getElementById("stats-new-summary").textContent =
-    `${newAnomalies.length} véhicule(s) en anomalie depuis moins de 7 jours.`;
-  document.getElementById("stats-new-list").textContent =
-    newAnomalies.length ? newAnomalies.map(v => v.num_parc).join(", ") : "—";
-
-  // 4. Lingering anomalies (more than 30 days)
-  if (lingeringVehicles === null) {
-    document.getElementById("stats-lingering-summary").textContent =
-      "Pas encore chargé - cliquez sur \"Rafraîchir\" sur cet onglet.";
-    document.getElementById("stats-lingering-list").textContent = "";
-  } else {
-    document.getElementById("stats-lingering-summary").textContent =
-      `${lingeringVehicles.length} véhicule(s) en anomalie depuis plus de 30 jours.`;
-    document.getElementById("stats-lingering-list").textContent =
-      lingeringVehicles.length ? lingeringVehicles.join(", ") : "—";
-  }
-
-  // 5. Average duration of current anomalies (estimate; vehicles with no
-  // known last-seen date are excluded from this specific average)
-  const durations = allVehicles
-    .filter(v => v.status === "anomalie" && v.hours_since_last_seen !== null)
-    .map(v => Math.max(0, (v.hours_since_last_seen - 48) / 24));
+  // 3. Average duration of current anomalies (estimate; vehicles with no
+  // known age are excluded from this specific average)
+  const durations = entries
+    .filter(e => e.hasAnomaly && e.ageHours !== null)
+    .map(e => Math.max(0, (e.ageHours - 48) / 24));
   if (durations.length > 0) {
     const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
     document.getElementById("stats-avg-duration").textContent =
@@ -1014,7 +1080,6 @@ document.getElementById("tab-btn-detail").addEventListener("click", () => switch
 document.getElementById("tab-btn-sae-gps").addEventListener("click", () => switchTab("sae-gps-view"));
 document.getElementById("tab-btn-stats").addEventListener("click", () => switchTab("stats-view"));
 document.getElementById("home-refresh-btn").addEventListener("click", loadHome);
-document.getElementById("stats-refresh-btn").addEventListener("click", loadStats);
 document.getElementById("choice-modal-cancel-btn").addEventListener("click", hideChoiceModal);
 
 document.getElementById("detail-search-btn").addEventListener("click", searchVehicleFromInput);

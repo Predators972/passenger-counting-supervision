@@ -87,17 +87,15 @@ def _combine_date_time_sae_to_utc(df: pd.DataFrame, date_col: str, time_col: str
     return localized.dt.tz_convert("UTC").dt.tz_localize(None)
 
 
-def _lookback_start(since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> datetime:
+def _lookback_start(since=None) -> datetime:
     """!
     @brief Resolve the start date to use in a query's date range.
 
-    @param since Optional datetime; if provided and more recent than the
-    computed floor, it narrows the window.
-    @param max_days_back Maximum number of days to look back; defines the
-    floor of the window.
+    @param since Optional datetime; if provided and more recent than
+    HISTORY_LOOKBACK_DAYS ago, it narrows the window.
     @return The datetime to use as the lower bound of the query.
     """
-    floor = utc_now() - timedelta(days=max_days_back)
+    floor = utc_now() - timedelta(days=HISTORY_LOOKBACK_DAYS)
     if since is not None and since > floor:
         return since
     return floor
@@ -254,17 +252,16 @@ def fetch_metrics_sae_gps_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     return df
 
 
-def fetch_metrics_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+def fetch_metrics_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     """!
     @brief Fetch "metrics" rows for a single vehicle, filtered directly in
     SQL.
 
     @param num_parc Vehicle number to filter on.
     @param since Optional datetime narrowing the query window.
-    @param max_days_back Maximum number of days to look back.
     @return DataFrame with one row per metrics report for that vehicle.
     """
-    start_date = _lookback_start(since, max_days_back=max_days_back)
+    start_date = _lookback_start(since)
 
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_metrics.csv")
@@ -302,19 +299,18 @@ DOOR_COUNTS_COLUMNS = [
 ]
 
 
-def fetch_door_counts_for_vehicle(num_parc, since=None, max_days_back: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+def fetch_door_counts_for_vehicle(num_parc, since=None) -> pd.DataFrame:
     """!
     @brief Fetch door_counts rows for a single vehicle, filtered directly in
     SQL.
 
     @param num_parc Vehicle number to filter on.
     @param since Optional datetime narrowing the query window.
-    @param max_days_back Maximum number of days to look back.
     @return DataFrame with one row per door_counts report for that vehicle,
     including a "timestamp" column and one pair of PX_IN/PX_OUT columns
     per door.
     """
-    start_date = _lookback_start(since, max_days_back=max_days_back)
+    start_date = _lookback_start(since)
 
     if USE_SAMPLE_DATA:
         df = pd.read_csv(SAMPLE_DATA_DIR / "sample_door_counts.csv")
