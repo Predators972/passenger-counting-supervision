@@ -295,7 +295,6 @@ button:disabled {
   display: inline-block;
   min-width: 64px;
   padding: 14px 18px;
-  background: #c0392b;
   color: white;
   font-size: 1.4em;
   font-weight: bold;
@@ -307,8 +306,62 @@ button:disabled {
 }
 
 .home-badge:hover {
-  background: #a5301f;
   transform: scale(1.05);
+}
+
+.home-badge-doors {
+  background: #c0392b;
+}
+.home-badge-doors:hover {
+  background: #a5301f;
+}
+
+.home-badge-saegps {
+  background: #2e6da4;
+}
+.home-badge-saegps:hover {
+  background: #255a87;
+}
+
+.home-badge-both {
+  background: #6c3483;
+}
+.home-badge-both:hover {
+  background: #572a6a;
+}
+
+.home-legend {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 10px 14px;
+  background: #eef1f4;
+  border-radius: 8px;
+  font-size: 0.9em;
+}
+
+.home-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #444;
+}
+
+.home-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+#home-partial-warning {
+  background: #fdf1e0;
+  border: 1px solid #d98c00;
+  color: #8a5a00;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
 }
 
 /* ---------- Choice modal ---------- */

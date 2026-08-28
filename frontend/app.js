@@ -251,7 +251,10 @@ function renderHomeCategory(containerId, entries) {
 
   entries.forEach(([numParc, info]) => {
     const badge = document.createElement("button");
-    badge.className = "home-badge";
+    const colorClass = info.hasDoorAnomaly && info.hasSaeGpsAnomaly
+      ? "home-badge-both"
+      : info.hasDoorAnomaly ? "home-badge-doors" : "home-badge-saegps";
+    badge.className = `home-badge ${colorClass}`;
     badge.textContent = numParc;
     badge.addEventListener("click", () => {
       if (info.hasDoorAnomaly && info.hasSaeGpsAnomaly) {
@@ -268,13 +271,28 @@ function renderHomeCategory(containerId, entries) {
 
 /**
  * @brief Render the whole home page from allVehicles and
- * allSaeGpsVehicles. Does nothing if no data has been loaded yet.
+ * allSaeGpsVehicles, including a warning banner when only one of the two
+ * sources has been loaded so far (partial anomaly picture). Does nothing
+ * if neither has been loaded yet.
  */
 function renderHome() {
   if (allVehicles.length === 0 && allSaeGpsVehicles.length === 0) return;
 
   document.getElementById("home-placeholder").classList.add("hidden");
   document.getElementById("home-content").classList.remove("hidden");
+
+  const warningEl = document.getElementById("home-partial-warning");
+  if (allVehicles.length === 0) {
+    warningEl.textContent =
+      "Seules les anomalies SAE/GPS sont affichées ici — les anomalies de porte n'ont pas encore été chargées. Rafraîchissez la vue \"Anomalies portes\" (ou cette page) pour voir l'image complète.";
+    warningEl.classList.remove("hidden");
+  } else if (allSaeGpsVehicles.length === 0) {
+    warningEl.textContent =
+      "Seules les anomalies de porte sont affichées ici — les anomalies SAE/GPS n'ont pas encore été chargées. Rafraîchissez la vue \"Anomalies SAE / GPS\" (ou cette page) pour voir l'image complète.";
+    warningEl.classList.remove("hidden");
+  } else {
+    warningEl.classList.add("hidden");
+  }
 
   const anomalies = computeHomeAnomalies();
   const byCategory = { "Bus URBAIN": [], "Bus SUBURBAIN": [], "Tramways": [] };

@@ -13,8 +13,8 @@
   <main>
     <nav class="tabs">
       <button class="tab-btn active" id="tab-btn-home" data-tab="home-view">Accueil</button>
-      <button class="tab-btn" id="tab-btn-global" data-tab="global-view">Vue globale</button>
-      <button class="tab-btn" id="tab-btn-detail" data-tab="detail-view">Détail véhicule</button>
+      <button class="tab-btn" id="tab-btn-global" data-tab="global-view">Anomalies portes</button>
+      <button class="tab-btn" id="tab-btn-detail" data-tab="detail-view">Détail portes</button>
       <button class="tab-btn" id="tab-btn-sae-gps" data-tab="sae-gps-view">Anomalies SAE / GPS</button>
       <button class="tab-btn" id="tab-btn-stats" data-tab="stats-view">Statistiques</button>
     </nav>
@@ -34,6 +34,14 @@
       <p id="home-placeholder">Cliquez sur "Rafraîchir" pour charger les véhicules en anomalie.</p>
 
       <div id="home-content" class="hidden">
+        <p id="home-partial-warning" class="hidden"></p>
+
+        <div class="home-legend">
+          <span class="home-legend-item"><span class="home-legend-swatch home-badge-doors"></span>Anomalie porte</span>
+          <span class="home-legend-item"><span class="home-legend-swatch home-badge-saegps"></span>Anomalie SAE / GPS</span>
+          <span class="home-legend-item"><span class="home-legend-swatch home-badge-both"></span>Porte + SAE / GPS</span>
+        </div>
+
         <div class="home-category" id="home-category-urbain">
           <h3>Bus URBAIN <span class="home-category-count"></span></h3>
           <div class="home-badge-grid"></div>
