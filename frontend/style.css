@@ -261,3 +261,94 @@ button:disabled {
   align-items: center;
   gap: 6px;
 }
+
+/* ---------- Home page: category blocks and vehicle badges ---------- */
+
+.home-category {
+  margin-bottom: 32px;
+}
+
+.home-category h3 {
+  font-size: 1.3em;
+  border-bottom: 2px solid #1e2a38;
+  padding-bottom: 6px;
+}
+
+.home-category-count {
+  font-weight: normal;
+  color: #555;
+  font-size: 0.8em;
+}
+
+.home-badge-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.home-badge-grid p {
+  color: #555;
+}
+
+.home-badge {
+  display: inline-block;
+  min-width: 64px;
+  padding: 14px 18px;
+  background: #c0392b;
+  color: white;
+  font-size: 1.4em;
+  font-weight: bold;
+  text-align: center;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.1s, background 0.1s;
+}
+
+.home-badge:hover {
+  background: #a5301f;
+  transform: scale(1.05);
+}
+
+/* ---------- Choice modal ---------- */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-box {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  max-width: 360px;
+  text-align: center;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.modal-cancel {
+  background: none;
+  border: none;
+  color: #555;
+  text-decoration: underline;
+  cursor: pointer;
+}

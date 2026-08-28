@@ -138,6 +138,160 @@ function updateSortArrows(state, headerIdMap) {
   if (el) el.textContent = arrow;
 }
 
+// ---------- Home page ----------
+
+/**
+ * @brief Navigate to the vehicle detail tab for a given vehicle number and
+ * load its detail.
+ * @param numParc Vehicle number to display.
+ */
+function goToVehicleDetail(numParc) {
+  document.getElementById("detail-vehicle-input").value = numParc;
+  switchTab("detail-view");
+  showVehicleDetail(numParc);
+}
+
+/**
+ * @brief Navigate to the SAE/GPS tab and load the history for a given
+ * vehicle number.
+ * @param numParc Vehicle number to display.
+ */
+function goToSaeGpsHistory(numParc) {
+  document.getElementById("sae-gps-search").value = numParc;
+  document.getElementById("sae-gps-type-filter").value = "";
+  document.getElementById("sae-gps-history-vehicle-input").value = numParc;
+  switchTab("sae-gps-view");
+  renderSaeGpsTables();
+  loadSaeGpsHistory();
+}
+
+/**
+ * @brief Show the choice modal, letting the user pick between the vehicle
+ * detail (door anomaly) and the SAE/GPS view for a vehicle that has both
+ * kinds of anomaly.
+ * @param numParc Vehicle number the choice applies to.
+ */
+function showChoiceModal(numParc) {
+  document.getElementById("choice-modal-text").textContent =
+    `Le véhicule ${numParc} a une anomalie de porte et une anomalie SAE/GPS. Que voulez-vous consulter ?`;
+  document.getElementById("choice-modal-doors-btn").onclick = () => {
+    hideChoiceModal();
+    goToVehicleDetail(numParc);
+  };
+  document.getElementById("choice-modal-saegps-btn").onclick = () => {
+    hideChoiceModal();
+    goToSaeGpsHistory(numParc);
+  };
+  document.getElementById("choice-modal").classList.remove("hidden");
+}
+
+/**
+ * @brief Hide the choice modal.
+ */
+function hideChoiceModal() {
+  document.getElementById("choice-modal").classList.add("hidden");
+}
+
+/**
+ * @brief Refresh the home page: reloads the global fleet and SAE/GPS data
+ * in parallel (updating those tabs too), and re-renders the category
+ * breakdown.
+ * @return Promise that resolves once the home page has been rendered.
+ */
+async function loadHome() {
+  await withSpinner("home-refresh-btn", "home-refresh-spinner", "home-refresh-timer", async () => {
+    await Promise.all([loadVehicles(), loadSaeGpsAnomalies()]);
+
+    renderHome();
+    document.getElementById("home-last-refresh").textContent =
+      "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
+  });
+}
+
+/**
+ * @brief Compute, for every vehicle with at least one anomaly, its
+ * category and which kind(s) of anomaly it has.
+ * @return Object mapping num_parc to {category, hasDoorAnomaly,
+ * hasSaeGpsAnomaly}.
+ */
+function computeHomeAnomalies() {
+  const map = {};
+
+  allVehicles.forEach(v => {
+    if (v.status !== "anomalie") return;
+    map[v.num_parc] = map[v.num_parc] || { category: v.rolling_stock_category };
+    map[v.num_parc].hasDoorAnomaly = true;
+  });
+
+  allSaeGpsVehicles.forEach(v => {
+    if (v.sae.status !== "anomalie" && v.gps.status !== "anomalie") return;
+    map[v.num_parc] = map[v.num_parc] || { category: v.rolling_stock_category };
+    map[v.num_parc].hasSaeGpsAnomaly = true;
+  });
+
+  return map;
+}
+
+/**
+ * @brief Render one category block's badge grid.
+ * @param containerId ID of the .home-category element for this category.
+ * @param entries Array of [num_parc, info] pairs for this category,
+ * already sorted.
+ */
+function renderHomeCategory(containerId, entries) {
+  const container = document.getElementById(containerId);
+  container.querySelector(".home-category-count").textContent = `(${entries.length})`;
+  const grid = container.querySelector(".home-badge-grid");
+  grid.innerHTML = "";
+
+  if (entries.length === 0) {
+    grid.innerHTML = "<p>Aucune anomalie.</p>";
+    return;
+  }
+
+  entries.forEach(([numParc, info]) => {
+    const badge = document.createElement("button");
+    badge.className = "home-badge";
+    badge.textContent = numParc;
+    badge.addEventListener("click", () => {
+      if (info.hasDoorAnomaly && info.hasSaeGpsAnomaly) {
+        showChoiceModal(numParc);
+      } else if (info.hasDoorAnomaly) {
+        goToVehicleDetail(numParc);
+      } else {
+        goToSaeGpsHistory(numParc);
+      }
+    });
+    grid.appendChild(badge);
+  });
+}
+
+/**
+ * @brief Render the whole home page from allVehicles and
+ * allSaeGpsVehicles. Does nothing if no data has been loaded yet.
+ */
+function renderHome() {
+  if (allVehicles.length === 0 && allSaeGpsVehicles.length === 0) return;
+
+  document.getElementById("home-placeholder").classList.add("hidden");
+  document.getElementById("home-content").classList.remove("hidden");
+
+  const anomalies = computeHomeAnomalies();
+  const byCategory = { "Bus URBAIN": [], "Bus SUBURBAIN": [], "Tramways": [] };
+
+  Object.entries(anomalies).forEach(([numParc, info]) => {
+    if (byCategory[info.category]) {
+      byCategory[info.category].push([Number(numParc), info]);
+    }
+  });
+
+  Object.values(byCategory).forEach(entries => entries.sort((a, b) => a[0] - b[0]));
+
+  renderHomeCategory("home-category-urbain", byCategory["Bus URBAIN"]);
+  renderHomeCategory("home-category-suburbain", byCategory["Bus SUBURBAIN"]);
+  renderHomeCategory("home-category-tramways", byCategory["Tramways"]);
+}
+
 // ---------- Global fleet view ----------
 
 /**
@@ -184,6 +338,7 @@ async function loadVehicles() {
       "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
 
     renderStats();
+    renderHome();
   });
 }
 
@@ -530,6 +685,7 @@ async function loadSaeGpsAnomalies() {
       "Dernier rafraîchissement : " + new Date().toLocaleTimeString("fr-FR");
 
     renderStats();
+    renderHome();
   });
 }
 
@@ -707,11 +863,12 @@ let lingeringVehicles = null;
  */
 async function loadStats() {
   await withSpinner("stats-refresh-btn", "stats-refresh-spinner", "stats-refresh-timer", async () => {
-    await loadVehicles();
-    await loadSaeGpsAnomalies();
-
-    const res = await fetch(`${API_BASE}/stats/lingering`);
-    const data = await res.json();
+    const [, , lingeringRes] = await Promise.all([
+      loadVehicles(),
+      loadSaeGpsAnomalies(),
+      fetch(`${API_BASE}/stats/lingering`),
+    ]);
+    const data = await lingeringRes.json();
     lingeringVehicles = data.vehicles;
 
     renderStats();
@@ -850,11 +1007,14 @@ document.getElementById("gps-col-ratio").addEventListener("click", () => toggleS
 document.getElementById("gps-col-status").addEventListener("click", () => toggleSort(gpsSortState, "status", renderSaeGpsTables, "asc"));
 document.getElementById("sae-gps-history-btn").addEventListener("click", loadSaeGpsHistory);
 
+document.getElementById("tab-btn-home").addEventListener("click", () => switchTab("home-view"));
 document.getElementById("tab-btn-global").addEventListener("click", () => switchTab("global-view"));
 document.getElementById("tab-btn-detail").addEventListener("click", () => switchTab("detail-view"));
 document.getElementById("tab-btn-sae-gps").addEventListener("click", () => switchTab("sae-gps-view"));
 document.getElementById("tab-btn-stats").addEventListener("click", () => switchTab("stats-view"));
+document.getElementById("home-refresh-btn").addEventListener("click", loadHome);
 document.getElementById("stats-refresh-btn").addEventListener("click", loadStats);
+document.getElementById("choice-modal-cancel-btn").addEventListener("click", hideChoiceModal);
 
 document.getElementById("detail-search-btn").addEventListener("click", searchVehicleFromInput);
 document.getElementById("detail-vehicle-input").addEventListener("keydown", (e) => {
