@@ -49,8 +49,8 @@ Cette architecture, aussi fiable soit-elle, nécessite un suivi technique régul
 - ✅ Distinction entre véhicule réellement en panne et véhicule hors exploitation
 - ✅ Chiffrement des identifiants BDD3 pour un déploiement sans fichier `.env`
 - ✅ Script de déploiement temporaire sur un PC local (Windows, sans droits admin)
-- ⏳ Page d'accueil
-- ⏳ Onglet statistiques pour les mainteneurs (état du parc, répartition par type, nouvelles anomalies, anomalies qui traînent, durée des anomalies)
+- ✅ Page d'accueil
+- ✅ Onglet statistiques pour les mainteneurs (état du parc, répartition par type...)
 - ⏳ Authentification
 - ⏳ Déploiement sur serveur
 - ⏳ Mise en forme visuelle
