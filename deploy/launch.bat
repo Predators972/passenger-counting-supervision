@@ -58,25 +58,29 @@ if not exist "%PROJECT_DIR%" (
     popd
 )
 
-if not exist "%~dp0credentials.key" (
-    echo.
-    echo credentials.key introuvable a cote de launch.bat.
-    pause
-    exit /b 1
-)
+set BACKEND_KEY=%PROJECT_DIR%\backend\credentials.key
 
-echo Copie de la cle de dechiffrement...
-copy /Y "%~dp0credentials.key" "%PROJECT_DIR%\backend\credentials.key" >nul
-if errorlevel 1 (
-    echo.
-    echo Echec de la copie de la cle de dechiffrement.
-    pause
-    exit /b 1
+if not exist "%BACKEND_KEY%" (
+    if not exist "%~dp0credentials.key" (
+        echo.
+        echo credentials.key introuvable a cote de launch.bat et absente de backend.
+        pause
+        exit /b 1
+    )
+
+    echo Copie de la cle de dechiffrement...
+    copy /Y "%~dp0credentials.key" "%BACKEND_KEY%" >nul
+    if errorlevel 1 (
+        echo.
+        echo Echec de la copie de la cle de dechiffrement.
+        pause
+        exit /b 1
+    )
 )
 
 set VENV_DIR=%PROJECT_DIR%\backend\venv
 
-if not exist "%VENV_DIR%" (
+if not exist "%VENV_DIR%\Scripts\uvicorn.exe" (
     echo Premier lancement, installation des dependances...
     pushd "%PROJECT_DIR%\backend"
     python -m venv venv
