@@ -878,11 +878,11 @@ const statsExpandedCategories = new Set();
 
 /**
  * @brief Compute, for every known vehicle, whether it has an anomaly
- * (door OR SAE OR GPS) and a rough age estimate for that anomaly, purely
- * from allVehicles and allSaeGpsVehicles already in memory - no network
- * call.
+ * (door OR SAE OR GPS), a rough age estimate for that anomaly, and its
+ * door counts (total and en anomalie), purely from allVehicles and
+ * allSaeGpsVehicles already in memory - no network call.
  * @return Object mapping num_parc to {category, type, hasAnomaly,
- * ageHours}.
+ * ageHours, doorsTotal, doorsAnomalie}.
  */
 function computeCombinedVehicleAnomalies() {
   const map = {};
@@ -891,7 +891,10 @@ function computeCombinedVehicleAnomalies() {
     map[v.num_parc] = map[v.num_parc] || {
       category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
       hasDoorAnomaly: false, hasSaeAnomaly: false, hasGpsAnomaly: false,
+      doorsTotal: 0, doorsAnomalie: 0,
     };
+    map[v.num_parc].doorsTotal = v.door_count_total;
+    map[v.num_parc].doorsAnomalie = v.door_count_total - v.door_count_functional;
     if (v.status === "anomalie") {
       map[v.num_parc].hasAnomaly = true;
       map[v.num_parc].hasDoorAnomaly = true;
@@ -903,6 +906,7 @@ function computeCombinedVehicleAnomalies() {
     map[v.num_parc] = map[v.num_parc] || {
       category: v.rolling_stock_category, type: v.rolling_stock_type, hasAnomaly: false, ageHours: null,
       hasDoorAnomaly: false, hasSaeAnomaly: false, hasGpsAnomaly: false,
+      doorsTotal: 0, doorsAnomalie: 0,
     };
     const saeAnomaly = v.sae.status === "anomalie";
     const gpsAnomaly = v.gps.status === "anomalie";
@@ -926,32 +930,40 @@ function computeCombinedVehicleAnomalies() {
  * @brief Group the combined anomaly map by rolling stock category, with
  * a per-subtype breakdown for Bus URBAIN and Tramways (Bus SUBURBAIN
  * stays a single aggregate row - too many distinct models to list
- * individually).
+ * individually). Also sums the door counts (total and en anomalie) per
+ * category and subtype.
  * @param anomalyMap Object as returned by computeCombinedVehicleAnomalies.
- * @return Object mapping category name to {anomalie, total, children?},
- * children being a map of subtype name to {anomalie, total}.
+ * @return Object mapping category name to {anomalie, total, doorsAnomalie,
+ * doorsTotal, children?}, children being a map of subtype name to
+ * {anomalie, total, doorsAnomalie, doorsTotal}.
  */
 function computeVehicleTypeBreakdown(anomalyMap) {
   const breakdown = {};
 
   Object.values(anomalyMap).forEach(entry => {
-    const { category, type, hasAnomaly } = entry;
+    const { category, type, hasAnomaly, doorsTotal, doorsAnomalie } = entry;
     if (!category) return;
 
     if (category === "Bus SUBURBAIN") {
-      if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0 };
+      if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0, doorsAnomalie: 0, doorsTotal: 0 };
       breakdown[category].total++;
       if (hasAnomaly) breakdown[category].anomalie++;
+      breakdown[category].doorsAnomalie += doorsAnomalie || 0;
+      breakdown[category].doorsTotal += doorsTotal || 0;
       return;
     }
 
     const subtype = type.slice(category.length + 3);
-    if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0, children: {} };
+    if (!breakdown[category]) breakdown[category] = { anomalie: 0, total: 0, doorsAnomalie: 0, doorsTotal: 0, children: {} };
     breakdown[category].total++;
     if (hasAnomaly) breakdown[category].anomalie++;
-    if (!breakdown[category].children[subtype]) breakdown[category].children[subtype] = { anomalie: 0, total: 0 };
+    breakdown[category].doorsAnomalie += doorsAnomalie || 0;
+    breakdown[category].doorsTotal += doorsTotal || 0;
+    if (!breakdown[category].children[subtype]) breakdown[category].children[subtype] = { anomalie: 0, total: 0, doorsAnomalie: 0, doorsTotal: 0 };
     breakdown[category].children[subtype].total++;
     if (hasAnomaly) breakdown[category].children[subtype].anomalie++;
+    breakdown[category].children[subtype].doorsAnomalie += doorsAnomalie || 0;
+    breakdown[category].children[subtype].doorsTotal += doorsTotal || 0;
   });
 
   return breakdown;
@@ -959,7 +971,9 @@ function computeVehicleTypeBreakdown(anomalyMap) {
 
 /**
  * @brief Render the "Répartition par type" table, with Bus URBAIN and
- * Tramways rows expandable to show their subtypes.
+ * Tramways rows expandable to show their subtypes. Each row shows the
+ * vehicle anomaly count and the door anomaly count, each with its
+ * percentage in parentheses.
  * @param breakdown Object as returned by computeVehicleTypeBreakdown.
  */
 function renderTypeBreakdownTable(breakdown) {
@@ -971,17 +985,18 @@ function renderTypeBreakdownTable(breakdown) {
     if (!data) return;
 
     const pct = data.total ? (data.anomalie / data.total * 100).toFixed(1) : "0.0";
+    const doorsPct = data.doorsTotal ? (data.doorsAnomalie / data.doorsTotal * 100).toFixed(1) : "0.0";
     const tr = document.createElement("tr");
 
     if (!data.children) {
-      tr.innerHTML = `<td>${category}</td><td>${data.anomalie} / ${data.total}</td><td>${pct}%</td>`;
+      tr.innerHTML = `<td>${category}</td><td>${data.anomalie} / ${data.total} (${pct}%)</td><td>${data.doorsAnomalie} / ${data.doorsTotal} (${doorsPct}%)</td>`;
       tbody.appendChild(tr);
       return;
     }
 
     const expanded = statsExpandedCategories.has(category);
     tr.className = "stats-parent-row";
-    tr.innerHTML = `<td>${expanded ? "▼" : "▶"} ${category}</td><td>${data.anomalie} / ${data.total}</td><td>${pct}%</td>`;
+    tr.innerHTML = `<td>${expanded ? "▼" : "▶"} ${category}</td><td>${data.anomalie} / ${data.total} (${pct}%)</td><td>${data.doorsAnomalie} / ${data.doorsTotal} (${doorsPct}%)</td>`;
     tr.addEventListener("click", () => {
       if (statsExpandedCategories.has(category)) statsExpandedCategories.delete(category);
       else statsExpandedCategories.add(category);
@@ -993,9 +1008,10 @@ function renderTypeBreakdownTable(breakdown) {
     Object.keys(data.children).sort().forEach(subtype => {
       const child = data.children[subtype];
       const childPct = child.total ? (child.anomalie / child.total * 100).toFixed(1) : "0.0";
+      const childDoorsPct = child.doorsTotal ? (child.doorsAnomalie / child.doorsTotal * 100).toFixed(1) : "0.0";
       const childTr = document.createElement("tr");
       childTr.className = "stats-child-row";
-      childTr.innerHTML = `<td class="stats-child-label">${subtype}</td><td>${child.anomalie} / ${child.total}</td><td>${childPct}%</td>`;
+      childTr.innerHTML = `<td class="stats-child-label">${subtype}</td><td>${child.anomalie} / ${child.total} (${childPct}%)</td><td>${child.doorsAnomalie} / ${child.doorsTotal} (${childDoorsPct}%)</td>`;
       tbody.appendChild(childTr);
     });
   });
